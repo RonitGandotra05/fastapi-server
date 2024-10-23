@@ -8,6 +8,30 @@ import os
 from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from dotenv import load_dotenv
+from enum import Enum
+
+class RecipientEnum(str, Enum):
+    Ronit = "Ronit"
+    Kapil = "Kapil"
+    Yash = "Yash"
+    Saurabh = "Saurabh"
+    Sandeep_Yadav = "Sandeep Yadav"
+    Shubham_Sachdeva = "Shubham Sachdeva"
+    Piyush_Suneja = "Piyush Suneja"
+    Yash_Kumar_Pal = "Yash Kumar Pal"
+    Kapil_Sharma = "Kapil Sharma"
+    Arun_Kumar = "Arun Kumar"
+    Rohan_Thakur = "Rohan Thakur"
+    Subhashish_Behera = "Subhashish Behera"
+    Boby = "Boby"
+    Ankita_Singh = "Ankita Singh"
+    CP_Dhaundiyal = "CP Dhaundiyal"
+    Sajal = "Sajal"
+    Ryan = "Ryan"
+    Karan_Grover = "Karan Grover"
+    Karan_Sachdeva = "Karan Sachdeva"
+    Vikas_Singh = "Vikas Singh"
+    None_ = "None"
 
 # Load environment variables from .env file
 load_dotenv()
@@ -74,7 +98,10 @@ def get_db():
 
 # Authentication dependency
 def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if credentials.credentials != API_TOKEN:
+    received_token = credentials.credentials
+    print(f"Received token: {received_token}")
+    print(f"Expected token: {API_TOKEN}")
+    if received_token != API_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid or missing API token")
 
 # Upload Endpoint
@@ -82,12 +109,16 @@ def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)):
 async def upload_screenshot(
     file: UploadFile = File(...),
     description: str = Form(...),
-    recipient: str = Form(...),
+    recipient: RecipientEnum = Form(...),
     db: Session = Depends(get_db),
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
     # Authenticate the request
     authenticate(credentials)
+
+    # Log the received description and recipient name
+    print(f"Received description: {description}")
+    print(f"Received recipient name: {recipient}")
 
     try:
         # Read the file contents
