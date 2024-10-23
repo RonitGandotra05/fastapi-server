@@ -1,37 +1,19 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from typing import Optional
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from typing import Optional, List
 import boto3
 import uuid
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Text
-from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey
+from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship, joinedload
 from dotenv import load_dotenv
-from enum import Enum
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+from datetime import datetime, timedelta
+from starlette.middleware.base import BaseHTTPMiddleware
+from pydantic import BaseModel
 
-class RecipientEnum(str, Enum):
-    Ronit = "Ronit"
-    Kapil = "Kapil"
-    Yash = "Yash"
-    Saurabh = "Saurabh"
-    Sandeep_Yadav = "Sandeep Yadav"
-    Shubham_Sachdeva = "Shubham Sachdeva"
-    Piyush_Suneja = "Piyush Suneja"
-    Yash_Kumar_Pal = "Yash Kumar Pal"
-    Kapil_Sharma = "Kapil Sharma"
-    Arun_Kumar = "Arun Kumar"
-    Rohan_Thakur = "Rohan Thakur"
-    Subhashish_Behera = "Subhashish Behera"
-    Boby = "Boby"
-    Ankita_Singh = "Ankita Singh"
-    CP_Dhaundiyal = "CP Dhaundiyal"
-    Sajal = "Sajal"
-    Ryan = "Ryan"
-    Karan_Grover = "Karan Grover"
-    Karan_Sachdeva = "Karan Sachdeva"
-    Vikas_Singh = "Vikas Singh"
-    None_ = "None"
 
 # Load environment variables from .env file
 load_dotenv()
@@ -47,8 +29,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Security - Authentication Token
-security = HTTPBearer()
+# Middleware to log every request and the user who made the request
+async def log_requests_middleware(request: Request, call_next):
+    user_email = "Anonymous"
+    if "authorization" in request.headers:
+        token = request.headers.get("authorization").split(" ")[1]
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            user_email = payload.get("sub", "Anonymous")
+        except JWTError:
+            pass
+    response = await call_next(request)
+    print(f"User: {user_email} made a request to {request.method} {request.url}")
+    return response
+
+app.add_middleware(BaseHTTPMiddleware, dispatch=log_requests_middleware)
+
+# Security - Password Hashing and Token Generation
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key')  # Use a secure method in production
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
 # AWS S3 Configuration from environment variables
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
@@ -71,19 +74,37 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
-# Authentication Token from environment variable
-API_TOKEN = os.getenv('API_TOKEN')
-if not API_TOKEN:
-    raise RuntimeError("API token must be set in environment variables")
+# Define the database models
+class User(Base):
+    __tablename__ = 'users'
 
-# Define the database model
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+    phone = Column(String, nullable=True)
+    password_hash = Column(String, nullable=False)
+    bug_reports = relationship("BugReport", back_populates="recipient")
+
 class BugReport(Base):
     __tablename__ = 'bug_reports'
 
     id = Column(Integer, primary_key=True, index=True)
     image_url = Column(String, nullable=False)
     description = Column(Text, nullable=False)
-    recipient = Column(String, nullable=False)
+    recipient_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    recipient = relationship("User", back_populates="bug_reports")
+    
+class BugReportBase(BaseModel):
+    id: int
+    image_url: str
+    description: str
+    recipient_id: int
+
+    class Config:
+        orm_mode = True
+
+class BugReportResponse(BugReportBase):
+    recipient: str
 
 # Create the database tables
 Base.metadata.create_all(bind=engine)
@@ -96,29 +117,102 @@ def get_db():
     finally:
         db.close()
 
-# Authentication dependency
-def authenticate(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    received_token = credentials.credentials
-    print(f"Received token: {received_token}")
-    print(f"Expected token: {API_TOKEN}")
-    if received_token != API_TOKEN:
-        raise HTTPException(status_code=401, detail="Invalid or missing API token")
+# Utility functions for authentication
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def get_user_by_email(db: Session, email: str):
+    return db.query(User).filter(User.email == email).first()
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=30)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+# Dependency to get current user
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = get_user_by_email(db, email=email)
+    if user is None:
+        raise credentials_exception
+    return user
+
+# Registration Endpoint
+@app.post("/register")
+def register_user(
+    name: str = Form(...),
+    email: str = Form(...),
+    phone: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    existing_user = get_user_by_email(db, email=email)
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user = User(
+        name=name,
+        email=email,
+        phone=phone,
+        password_hash=get_password_hash(password)
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"message": "User registered successfully"}
+
+# Login Endpoint
+@app.post("/login")
+def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+    user = get_user_by_email(db, email=form_data.username)
+    if not user or not verify_password(form_data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email},
+        expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+# Logout Endpoint
+@app.post("/logout")
+def logout():
+    return {"message": "Logout successful"}
 
 # Upload Endpoint
 @app.post("/upload")
 async def upload_screenshot(
     file: UploadFile = File(...),
     description: str = Form(...),
-    recipient: RecipientEnum = Form(...),
+    recipient_email: str = Form(...),
     db: Session = Depends(get_db),
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    current_user: User = Depends(get_current_user)
 ):
-    # Authenticate the request
-    authenticate(credentials)
-
-    # Log the received description and recipient name
-    print(f"Received description: {description}")
-    print(f"Received recipient name: {recipient}")
+    # Find the recipient user
+    recipient_user = get_user_by_email(db, email=recipient_email)
+    if not recipient_user:
+        raise HTTPException(status_code=404, detail="Recipient user not found")
 
     try:
         # Read the file contents
@@ -142,7 +236,7 @@ async def upload_screenshot(
         bug_report = BugReport(
             image_url=image_url,
             description=description,
-            recipient=recipient
+            recipient_id=recipient_user.id
         )
 
         # Add to the database
@@ -156,7 +250,7 @@ async def upload_screenshot(
             "id": bug_report.id,
             "url": image_url,
             "description": description,
-            "recipient": recipient
+            "recipient": recipient_user.email
         }
     except Exception as e:
         db.rollback()
@@ -168,11 +262,8 @@ async def upload_screenshot(
 def read_bug_report(
     bug_id: int,
     db: Session = Depends(get_db),
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    current_user: User = Depends(get_current_user)
 ):
-    # Authenticate the request
-    authenticate(credentials)
-
     bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
@@ -183,21 +274,21 @@ def read_bug_report(
 def update_bug_report(
     bug_id: int,
     description: Optional[str] = Form(None),
-    recipient: Optional[str] = Form(None),
+    recipient_email: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    current_user: User = Depends(get_current_user)
 ):
-    # Authenticate the request
-    authenticate(credentials)
-
     bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
 
     if description:
         bug_report.description = description
-    if recipient:
-        bug_report.recipient = recipient
+    if recipient_email:
+        recipient_user = get_user_by_email(db, email=recipient_email)
+        if not recipient_user:
+            raise HTTPException(status_code=404, detail="Recipient user not found")
+        bug_report.recipient_id = recipient_user.id
 
     db.commit()
     db.refresh(bug_report)
@@ -208,11 +299,8 @@ def update_bug_report(
 def delete_bug_report(
     bug_id: int,
     db: Session = Depends(get_db),
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    current_user: User = Depends(get_current_user)
 ):
-    # Authenticate the request
-    authenticate(credentials)
-
     bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
@@ -229,3 +317,26 @@ def delete_bug_report(
     db.delete(bug_report)
     db.commit()
     return {"message": "Bug report deleted"}
+
+@app.get("/bug_reports", response_model=List[BugReportResponse])
+def list_bug_reports(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    bug_reports = db.query(BugReport).options(joinedload(BugReport.recipient)).all()
+    return [
+        BugReportResponse(
+            id=bug.id,
+            image_url=bug.image_url,
+            description=bug.description,
+            recipient_id=bug.recipient_id,
+            recipient=bug.recipient.email
+        )
+        for bug in bug_reports
+    ]
+
+# Endpoint to get all registered users (for recipient selection)
+@app.get("/users", response_model=List[str])
+def get_users(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    users = db.query(User).all()
+    return [user.email for user in users]
