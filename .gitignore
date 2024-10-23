@@ -20,4 +20,5 @@ __pycache__/
 # MacOS
 .DS_Store
 
+bug_reports.db
 *.db
