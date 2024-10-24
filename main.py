@@ -7,23 +7,102 @@ import uuid
 import os
 from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship, joinedload
+from sqlalchemy.types import Enum as SQLAlchemyEnum
 from dotenv import load_dotenv
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
+from enum import Enum
 
-
-# Load environment variables from .env file
 load_dotenv()
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key')  # Use a secure method in production
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
+
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_REGION = os.getenv('AWS_REGION')
+AWS_BUCKET_NAME = os.getenv('AWS_BUCKET_NAME')
+
+if not all([AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, AWS_BUCKET_NAME]):
+    raise RuntimeError("AWS credentials and bucket information must be set in environment variables")
+
+s3_client = boto3.client(
+    's3',
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    region_name=AWS_REGION
+)
+
+DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./bug_reports.db')
+
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine)
+Base = declarative_base()
+
+# Define the database models
+class BugStatus(Enum):
+    assigned = "assigned"
+    resolved = "resolved"
+
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+    phone = Column(String, nullable=True)
+    password_hash = Column(String, nullable=False)
+    received_bug_reports = relationship(
+        "BugReport",
+        foreign_keys="[BugReport.recipient_id]",
+        back_populates="recipient"
+    )
+    created_bug_reports = relationship(
+        "BugReport",
+        foreign_keys="[BugReport.creator_id]",
+        back_populates="creator"
+    )
+
+class BugReport(Base):
+    __tablename__ = 'bug_reports'
+
+    id = Column(Integer, primary_key=True, index=True)
+    image_url = Column(String, nullable=False)
+    description = Column(Text, nullable=False)
+    recipient_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    recipient = relationship(
+        "User",
+        foreign_keys=[recipient_id],
+        back_populates="received_bug_reports"
+    )
+    creator_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    creator = relationship(
+        "User",
+        foreign_keys=[creator_id],
+        back_populates="created_bug_reports"
+    )
+    status = Column(
+        SQLAlchemyEnum(BugStatus),
+        default=BugStatus.assigned,
+        nullable=False
+    )
+
+# Create the database tables
+Base.metadata.create_all(bind=engine)
+
+# Define the FastAPI app
 app = FastAPI()
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For production, specify allowed origins
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -33,81 +112,19 @@ app.add_middleware(
 async def log_requests_middleware(request: Request, call_next):
     user_email = "Anonymous"
     if "authorization" in request.headers:
-        token = request.headers.get("authorization").split(" ")[1]
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            user_email = payload.get("sub", "Anonymous")
-        except JWTError:
-            pass
+        auth_header = request.headers.get("authorization")
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            try:
+                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+                user_email = payload.get("sub", "Anonymous")
+            except JWTError:
+                pass
     response = await call_next(request)
     print(f"User: {user_email} made a request to {request.method} {request.url}")
     return response
 
 app.add_middleware(BaseHTTPMiddleware, dispatch=log_requests_middleware)
-
-# Security - Password Hashing and Token Generation
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key')  # Use a secure method in production
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
-
-# AWS S3 Configuration from environment variables
-AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
-AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
-AWS_REGION = os.getenv('AWS_REGION')
-AWS_BUCKET_NAME = os.getenv('AWS_BUCKET_NAME')
-
-if not all([AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION, AWS_BUCKET_NAME]):
-    raise RuntimeError("AWS credentials and bucket information must be set in environment variables")
-
-s3_client = boto3.client('s3',
-                         aws_access_key_id=AWS_ACCESS_KEY_ID,
-                         aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-                         region_name=AWS_REGION)
-
-# Database Configuration
-DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./bug_reports.db')
-
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine)
-Base = declarative_base()
-
-# Define the database models
-class User(Base):
-    __tablename__ = 'users'
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(String, unique=True, index=True, nullable=False)
-    phone = Column(String, nullable=True)
-    password_hash = Column(String, nullable=False)
-    bug_reports = relationship("BugReport", back_populates="recipient")
-
-class BugReport(Base):
-    __tablename__ = 'bug_reports'
-
-    id = Column(Integer, primary_key=True, index=True)
-    image_url = Column(String, nullable=False)
-    description = Column(Text, nullable=False)
-    recipient_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    recipient = relationship("User", back_populates="bug_reports")
-    
-class BugReportBase(BaseModel):
-    id: int
-    image_url: str
-    description: str
-    recipient_id: int
-
-    class Config:
-        orm_mode = True
-
-class BugReportResponse(BugReportBase):
-    recipient: str
-
-# Create the database tables
-Base.metadata.create_all(bind=engine)
 
 # Dependency to get DB session
 def get_db():
@@ -138,7 +155,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 # Dependency to get current user
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
     credentials_exception = HTTPException(
         status_code=401,
         detail="Could not validate credentials",
@@ -155,6 +175,34 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     if user is None:
         raise credentials_exception
     return user
+
+# Pydantic models
+class BugReportResponse(BaseModel):
+    id: int
+    image_url: str
+    description: str
+    recipient_id: int
+    creator_id: int
+    status: BugStatus
+    recipient: str
+    creator: str
+
+    class Config:
+        from_attributes = True
+        use_enum_values = True
+
+    @classmethod
+    def from_bug_report(cls, bug_report: BugReport):
+        return cls(
+            id=bug_report.id,
+            image_url=bug_report.image_url,
+            description=bug_report.description,
+            recipient_id=bug_report.recipient_id,
+            creator_id=bug_report.creator_id,
+            status=bug_report.status,
+            recipient=bug_report.recipient.email,
+            creator=bug_report.creator.email
+        )
 
 # Registration Endpoint
 @app.post("/register")
@@ -215,13 +263,8 @@ async def upload_screenshot(
         raise HTTPException(status_code=404, detail="Recipient user not found")
 
     try:
-        # Read the file contents
         file_content = await file.read()
-
-        # Generate a unique file name
         file_name = f"screenshot-{uuid.uuid4()}.png"
-
-        # Upload to S3
         s3_client.put_object(
             Bucket=AWS_BUCKET_NAME,
             Key=file_name,
@@ -229,22 +272,20 @@ async def upload_screenshot(
             ContentType='image/png'
         )
 
-        # Construct the image URL
         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{file_name}"
 
-        # Create a new BugReport entry
         bug_report = BugReport(
             image_url=image_url,
             description=description,
-            recipient_id=recipient_user.id
+            recipient_id=recipient_user.id,
+            creator_id=current_user.id,
+            status=BugStatus.assigned
         )
 
-        # Add to the database
         db.add(bug_report)
         db.commit()
         db.refresh(bug_report)
 
-        # Return the response
         return {
             "message": "Upload successful",
             "id": bug_report.id,
@@ -258,16 +299,19 @@ async def upload_screenshot(
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 # Read Bug Report
-@app.get("/bug_reports/{bug_id}")
+@app.get("/bug_reports/{bug_id}", response_model=BugReportResponse)
 def read_bug_report(
     bug_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
+    bug_report = db.query(BugReport).options(
+        joinedload(BugReport.recipient),
+        joinedload(BugReport.creator)
+    ).filter(BugReport.id == bug_id).first()
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
-    return bug_report
+    return BugReportResponse.from_bug_report(bug_report)
 
 # Update Bug Report
 @app.put("/bug_reports/{bug_id}")
@@ -292,7 +336,10 @@ def update_bug_report(
 
     db.commit()
     db.refresh(bug_report)
-    return {"message": "Bug report updated", "bug_report": bug_report}
+    return {
+        "message": "Bug report updated",
+        "bug_report": BugReportResponse.from_bug_report(bug_report)
+    }
 
 # Delete Bug Report
 @app.delete("/bug_reports/{bug_id}")
@@ -307,36 +354,91 @@ def delete_bug_report(
 
     # Delete the image from S3
     try:
-        s3_key = bug_report.image_url.split(f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/")[1]
+        s3_key = bug_report.image_url.split(
+            f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/"
+        )[1]
         s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=s3_key)
     except Exception as e:
         print(f"Error deleting image from S3: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete image from S3")
+     
 
-    # Delete from the database
     db.delete(bug_report)
     db.commit()
     return {"message": "Bug report deleted"}
 
+# List Bug Reports
 @app.get("/bug_reports", response_model=List[BugReportResponse])
 def list_bug_reports(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    bug_reports = db.query(BugReport).options(joinedload(BugReport.recipient)).all()
-    return [
-        BugReportResponse(
-            id=bug.id,
-            image_url=bug.image_url,
-            description=bug.description,
-            recipient_id=bug.recipient_id,
-            recipient=bug.recipient.email
-        )
-        for bug in bug_reports
-    ]
+    bug_reports = db.query(BugReport).options(
+        joinedload(BugReport.recipient),
+        joinedload(BugReport.creator)
+    ).all()
+    return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
+
+# Toggle Bug Report Status
+@app.put("/bug_reports/{bug_id}/toggle_status")
+def toggle_bug_report_status(
+    bug_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
+    if bug_report is None:
+        raise HTTPException(status_code=404, detail="Bug report not found")
+    # Toggle the status
+    if bug_report.status == BugStatus.assigned:
+        bug_report.status = BugStatus.resolved
+    elif bug_report.status == BugStatus.resolved:
+        bug_report.status = BugStatus.assigned
+    else:
+        raise HTTPException(status_code=400, detail="Invalid bug report status")
+    db.commit()
+    db.refresh(bug_report)
+    return {
+        "message": "Bug report status toggled",
+        "bug_report": BugReportResponse.from_bug_report(bug_report)
+    }
 
 # Endpoint to get all registered users (for recipient selection)
 @app.get("/users", response_model=List[str])
-def get_users(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def get_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     users = db.query(User).all()
     return [user.email for user in users]
+
+# Get Bug Reports by User
+@app.get("/users/{user_id}/created_bug_reports", response_model=List[BugReportResponse])
+def get_bug_reports_created_by_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    bug_reports = db.query(BugReport).options(
+        joinedload(BugReport.recipient),
+        joinedload(BugReport.creator)
+    ).filter(BugReport.creator_id == user_id).all()
+    return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
+
+# Get Bug Reports Assigned to User
+@app.get("/users/{user_id}/received_bug_reports", response_model=List[BugReportResponse])
+def get_bug_reports_assigned_to_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    bug_reports = db.query(BugReport).options(
+        joinedload(BugReport.recipient),
+        joinedload(BugReport.creator)
+    ).filter(BugReport.recipient_id == user_id).all()
+    return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
