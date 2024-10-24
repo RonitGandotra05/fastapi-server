@@ -5,7 +5,7 @@ from typing import Optional, List
 import boto3
 import uuid
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship, joinedload
 from sqlalchemy.types import Enum as SQLAlchemyEnum
 from dotenv import load_dotenv
@@ -47,7 +47,7 @@ SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 # Define the database models
-class BugStatus(Enum):
+class BugStatus(str, Enum):
     assigned = "assigned"
     resolved = "resolved"
 
@@ -58,6 +58,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     phone = Column(String, nullable=True)
     password_hash = Column(String, nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False)
     received_bug_reports = relationship(
         "BugReport",
         foreign_keys="[BugReport.recipient_id]",
@@ -176,7 +177,30 @@ async def get_current_user(
         raise credentials_exception
     return user
 
+# Role-based dependency
+def RoleChecker(roles: List[str]):
+    async def role_checker(
+        current_user: User = Depends(get_current_user)
+    ):
+        if current_user.is_admin and 'admin' in roles:
+            return current_user
+        elif not current_user.is_admin and 'user' in roles:
+            return current_user
+        else:
+            raise HTTPException(status_code=403, detail="Access forbidden")
+    return role_checker  # Return the function itself
+
 # Pydantic models
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    email: str
+    phone: Optional[str] = None
+    is_admin: bool
+
+    class Config:
+        from_attributes = True
+
 class BugReportResponse(BaseModel):
     id: int
     image_url: str
@@ -199,19 +223,20 @@ class BugReportResponse(BaseModel):
             description=bug_report.description,
             recipient_id=bug_report.recipient_id,
             creator_id=bug_report.creator_id,
-            status=bug_report.status,
+            status=bug_report.status.value,
             recipient=bug_report.recipient.email,
             creator=bug_report.creator.email
         )
 
-# Registration Endpoint
+# Registration Endpoint (Admin Only)
 @app.post("/register")
 def register_user(
     name: str = Form(...),
     email: str = Form(...),
     phone: str = Form(...),
     password: str = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RoleChecker(['admin']))
 ):
     existing_user = get_user_by_email(db, email=email)
     if existing_user:
@@ -227,7 +252,7 @@ def register_user(
     db.refresh(user)
     return {"message": "User registered successfully"}
 
-# Login Endpoint
+# Login Endpoint (User Login)
 @app.post("/login")
 def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -236,6 +261,8 @@ def login_for_access_token(
     user = get_user_by_email(db, email=form_data.username)
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+    if user.is_admin:
+        raise HTTPException(status_code=403, detail="Please use the admin login endpoint")
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.email},
@@ -243,19 +270,40 @@ def login_for_access_token(
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-# Logout Endpoint
+# Admin Login Endpoint
+@app.post("/admin_login")
+def admin_login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+    user = get_user_by_email(db, email=form_data.username)
+    if not user or not verify_password(form_data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email},
+        expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+# Logout Endpoint (Accessible by all authenticated users)
 @app.post("/logout")
-def logout():
+async def logout(
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
+):
+    # Token invalidation logic can be implemented here if needed
     return {"message": "Logout successful"}
 
-# Upload Endpoint
+# Upload Endpoint (Accessible by both users and admins)
 @app.post("/upload")
 async def upload_screenshot(
     file: UploadFile = File(...),
     description: str = Form(...),
     recipient_email: str = Form(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     # Find the recipient user
     recipient_user = get_user_by_email(db, email=recipient_email)
@@ -298,12 +346,12 @@ async def upload_screenshot(
         print(f"Error uploading to S3 or saving to DB: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
-# Read Bug Report
+# Read Bug Report (Accessible by both users and admins)
 @app.get("/bug_reports/{bug_id}", response_model=BugReportResponse)
-def read_bug_report(
+async def read_bug_report(
     bug_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     bug_report = db.query(BugReport).options(
         joinedload(BugReport.recipient),
@@ -311,20 +359,29 @@ def read_bug_report(
     ).filter(BugReport.id == bug_id).first()
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
+
+    # Check if the current user is involved in the bug report
+    if not current_user.is_admin and current_user.id not in [bug_report.creator_id, bug_report.recipient_id]:
+        raise HTTPException(status_code=403, detail="Access forbidden")
+
     return BugReportResponse.from_bug_report(bug_report)
 
-# Update Bug Report
+# Update Bug Report (Accessible by both users and admins)
 @app.put("/bug_reports/{bug_id}")
-def update_bug_report(
+async def update_bug_report(
     bug_id: int,
     description: Optional[str] = Form(None),
     recipient_email: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
+
+    # Check if the current user is the creator or admin
+    if not current_user.is_admin and bug_report.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access forbidden")
 
     if description:
         bug_report.description = description
@@ -341,16 +398,20 @@ def update_bug_report(
         "bug_report": BugReportResponse.from_bug_report(bug_report)
     }
 
-# Delete Bug Report
+# Delete Bug Report (Accessible by both users and admins)
 @app.delete("/bug_reports/{bug_id}")
-def delete_bug_report(
+async def delete_bug_report(
     bug_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
+
+    # Check if the current user is the creator or admin
+    if not current_user.is_admin and bug_report.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access forbidden")
 
     # Delete the image from S3
     try:
@@ -360,17 +421,16 @@ def delete_bug_report(
         s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=s3_key)
     except Exception as e:
         print(f"Error deleting image from S3: {e}")
-     
 
     db.delete(bug_report)
     db.commit()
     return {"message": "Bug report deleted"}
 
-# List Bug Reports
+# List Bug Reports (Admin Only)
 @app.get("/bug_reports", response_model=List[BugReportResponse])
-def list_bug_reports(
+async def list_bug_reports(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(RoleChecker(['admin']))
 ):
     bug_reports = db.query(BugReport).options(
         joinedload(BugReport.recipient),
@@ -378,16 +438,21 @@ def list_bug_reports(
     ).all()
     return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
 
-# Toggle Bug Report Status
+# Toggle Bug Report Status (Accessible by both users and admins)
 @app.put("/bug_reports/{bug_id}/toggle_status")
-def toggle_bug_report_status(
+async def toggle_bug_report_status(
     bug_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
+
+    # Check if the current user is involved in the bug report
+    if not current_user.is_admin and current_user.id not in [bug_report.creator_id, bug_report.recipient_id]:
+        raise HTTPException(status_code=403, detail="Access forbidden")
+
     # Toggle the status
     if bug_report.status == BugStatus.assigned:
         bug_report.status = BugStatus.resolved
@@ -402,43 +467,60 @@ def toggle_bug_report_status(
         "bug_report": BugReportResponse.from_bug_report(bug_report)
     }
 
-# Endpoint to get all registered users (for recipient selection)
+# Endpoint to get all registered users (Admin Only)
 @app.get("/users", response_model=List[str])
-def get_users(
+async def get_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(RoleChecker(['admin']))
 ):
     users = db.query(User).all()
     return [user.email for user in users]
 
-# Get Bug Reports by User
+# Get Bug Reports Created by User (Accessible by both users and admins)
 @app.get("/users/{user_id}/created_bug_reports", response_model=List[BugReportResponse])
-def get_bug_reports_created_by_user(
+async def get_bug_reports_created_by_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Check if the current user is the user in question or admin
+    if not current_user.is_admin and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access forbidden")
+
     bug_reports = db.query(BugReport).options(
         joinedload(BugReport.recipient),
         joinedload(BugReport.creator)
     ).filter(BugReport.creator_id == user_id).all()
     return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
 
-# Get Bug Reports Assigned to User
+# Get Bug Reports Assigned to User (Accessible by both users and admins)
 @app.get("/users/{user_id}/received_bug_reports", response_model=List[BugReportResponse])
-def get_bug_reports_assigned_to_user(
+async def get_bug_reports_assigned_to_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Check if the current user is the user in question or admin
+    if not current_user.is_admin and current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Access forbidden")
+
     bug_reports = db.query(BugReport).options(
         joinedload(BugReport.recipient),
         joinedload(BugReport.creator)
     ).filter(BugReport.recipient_id == user_id).all()
     return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
+
+# Optional: Endpoint to get current user info (Accessible by both users and admins)
+@app.get("/users/me", response_model=UserResponse)
+async def get_current_user_info(
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
+):
+    return current_user
