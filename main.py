@@ -76,7 +76,7 @@ class BugReport(Base):
     id = Column(Integer, primary_key=True, index=True)
     image_url = Column(String, nullable=False)
     description = Column(Text, nullable=False)
-    recipient_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    recipient_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # Made nullable
     recipient = relationship(
         "User",
         foreign_keys=[recipient_id],
@@ -205,10 +205,10 @@ class BugReportResponse(BaseModel):
     id: int
     image_url: str
     description: str
-    recipient_id: int
+    recipient_id: Optional[int] = None
     creator_id: int
     status: BugStatus
-    recipient: str
+    recipient: Optional[str] = None
     creator: str
 
     class Config:
@@ -224,7 +224,7 @@ class BugReportResponse(BaseModel):
             recipient_id=bug_report.recipient_id,
             creator_id=bug_report.creator_id,
             status=bug_report.status.value,
-            recipient=bug_report.recipient.email,
+            recipient=bug_report.recipient.name if bug_report.recipient else None,
             creator=bug_report.creator.email
         )
 
@@ -301,14 +301,19 @@ async def logout(
 async def upload_screenshot(
     file: UploadFile = File(...),
     description: str = Form(...),
-    recipient_email: str = Form(...),
+    recipient_name: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
-    # Find the recipient user
-    recipient_user = get_user_by_email(db, email=recipient_email)
-    if not recipient_user:
-        raise HTTPException(status_code=404, detail="Recipient user not found")
+    if recipient_name:
+        # Find the recipient user by name
+        recipient_user = db.query(User).filter(User.name == recipient_name).first()
+        if not recipient_user:
+            raise HTTPException(status_code=404, detail="Recipient user not found")
+        recipient_id = recipient_user.id
+    else:
+        recipient_user = None
+        recipient_id = None
 
     try:
         file_content = await file.read()
@@ -325,7 +330,7 @@ async def upload_screenshot(
         bug_report = BugReport(
             image_url=image_url,
             description=description,
-            recipient_id=recipient_user.id,
+            recipient_id=recipient_id,
             creator_id=current_user.id,
             status=BugStatus.assigned
         )
@@ -339,7 +344,7 @@ async def upload_screenshot(
             "id": bug_report.id,
             "url": image_url,
             "description": description,
-            "recipient": recipient_user.email
+            "recipient": recipient_user.name if recipient_user else None
         }
     except Exception as e:
         db.rollback()
@@ -517,6 +522,34 @@ async def get_bug_reports_assigned_to_user(
         joinedload(BugReport.creator)
     ).filter(BugReport.recipient_id == user_id).all()
     return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
+
+# Assign or Reassign Recipient to Bug Report (Admin Only)
+@app.put("/bug_reports/{bug_id}/assign")
+async def assign_bug_report(
+    bug_id: int,
+    recipient_name: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RoleChecker(['admin']))
+):
+    # Fetch the bug report by ID
+    bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
+    if not bug_report:
+        raise HTTPException(status_code=404, detail="Bug report not found")
+
+    # Fetch the recipient user by name
+    recipient_user = db.query(User).filter(User.name == recipient_name).first()
+    if not recipient_user:
+        raise HTTPException(status_code=404, detail="Recipient user not found")
+
+    # Update the recipient of the bug report
+    bug_report.recipient_id = recipient_user.id
+    db.commit()
+    db.refresh(bug_report)
+
+    return {
+        "message": "Bug report recipient updated",
+        "bug_report": BugReportResponse.from_bug_report(bug_report)
+    }
 
 # Optional: Endpoint to get current user info (Accessible by both users and admins)
 @app.get("/users/me", response_model=UserResponse)
