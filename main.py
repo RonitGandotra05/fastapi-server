@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from enum import Enum
+import requests
+
 
 load_dotenv()
 
@@ -190,6 +192,21 @@ def RoleChecker(roles: List[str]):
             raise HTTPException(status_code=403, detail="Access forbidden")
     return role_checker  # Return the function itself
 
+def send_image_with_caption(phone_number, image_link, caption):
+    url = "https://api.ultramsg.com/instance29265/messages/image"  
+    payload = {
+        "token": os.getenv('ULTRAMSG_API_TOKEN'), 
+        "to": f"91{phone_number}@c.us",
+        "image": image_link,
+        "caption": caption
+    }
+    headers = {
+        "Content-Type": "application/json"
+    }
+    response = requests.post(url, json=payload, headers=headers)
+    response.raise_for_status()  
+
+
 # Pydantic models
 class UserResponse(BaseModel):
     id: int
@@ -338,6 +355,13 @@ async def upload_screenshot(
         db.add(bug_report)
         db.commit()
         db.refresh(bug_report)
+        
+        try:
+            if recipient_user:
+                caption = f"You have been assigned a new bug report by {current_user.name}."
+                send_image_with_caption(recipient_user.phone, image_url, caption)
+        except Exception as e:
+            print(f"Error sending message to recipient: {e}")
 
         return {
             "message": "Upload successful",
@@ -545,6 +569,13 @@ async def assign_bug_report(
     bug_report.recipient_id = recipient_user.id
     db.commit()
     db.refresh(bug_report)
+    
+    try:
+        caption = f"You have been assigned a bug report (ID: {bug_report.id}) by {current_user.name}."
+        send_image_with_caption(recipient_user.phone, bug_report.image_url, caption)
+    except Exception as e:
+        print(f"Error sending message to recipient: {e}")
+
 
     return {
         "message": "Bug report recipient updated",
