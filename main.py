@@ -358,7 +358,9 @@ async def upload_screenshot(
         
         try:
             if recipient_user:
-                caption = f"You have been assigned a new bug report by {current_user.name}."
+                caption = f"""You have been assigned a new bug report by {current_user.name}.
+                Description: {description}
+                """
                 send_image_with_caption(recipient_user.phone, image_url, caption)
         except Exception as e:
             print(f"Error sending message to recipient: {e}")
@@ -571,7 +573,9 @@ async def assign_bug_report(
     db.refresh(bug_report)
     
     try:
-        caption = f"You have been assigned a bug report (ID: {bug_report.id}) by {current_user.name}."
+        caption = f"""You have been assigned a bug report (ID: {bug_report.id}) by {current_user.name}.
+        Description: {bug_report.description}
+        """
         send_image_with_caption(recipient_user.phone, bug_report.image_url, caption)
     except Exception as e:
         print(f"Error sending message to recipient: {e}")
