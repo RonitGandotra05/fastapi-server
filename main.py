@@ -21,7 +21,7 @@ load_dotenv()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key')  # Use a secure method in production
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 1440
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
 
@@ -476,7 +476,7 @@ async def toggle_bug_report_status(
 @app.get("/users", response_model=List[str])
 async def get_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(RoleChecker(['admin']))
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     users = db.query(User).all()
     return [user.email for user in users]
