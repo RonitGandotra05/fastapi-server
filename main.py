@@ -479,7 +479,7 @@ async def get_users(
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     users = db.query(User).all()
-    return [user.email for user in users]
+    return [user.name for user in users]
 
 # Get Bug Reports Created by User (Accessible by both users and admins)
 @app.get("/users/{user_id}/created_bug_reports", response_model=List[BugReportResponse])
