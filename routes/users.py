@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, Form
+from fastapi import APIRouter, Depends, HTTPException, Form, Path
 from sqlalchemy.orm import Session
 from database import get_db
-from models import User
+from models import User, BugReport
 from auth import get_password_hash, get_user_by_email, verify_password, create_access_token, RoleChecker
 from typing import List
 from datetime import timedelta
 import os
 from fastapi.security import OAuth2PasswordRequestForm
+from schemas import UserResponse, UserUpdate
+
 
 
 router = APIRouter()
@@ -85,10 +87,19 @@ async def logout(
 @router.get("/users", response_model=List[str])
 async def get_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(RoleChecker(['admin']))
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     users = db.query(User).all()
     return [user.name for user in users]
+
+@router.get("/all_users", response_model=List[UserResponse])
+async def get_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RoleChecker(['admin']))
+):
+    users = db.query(User).all()
+    return users
+
 
 # Optional: Endpoint to get current user info (Accessible by both users and admins)
 @router.get("/users/me")
@@ -96,3 +107,59 @@ async def get_current_user_info(
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     return current_user
+
+# Update User Endpoint (Admin Only)
+@router.put("/users/{user_id}", response_model=UserResponse)
+def update_user(
+    user_id: int = Path(..., description="The ID of the user to update"),
+    user_update: UserUpdate = Depends(),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RoleChecker(['admin']))
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Update user fields if provided
+    if user_update.name is not None:
+        user.name = user_update.name
+    if user_update.email is not None:
+        # Check if the new email is already taken
+        existing_user = get_user_by_email(db, email=user_update.email)
+        if existing_user and existing_user.id != user_id:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        user.email = user_update.email
+    if user_update.phone is not None:
+        user.phone = user_update.phone
+    if user_update.is_admin is not None:
+        user.is_admin = user_update.is_admin
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+# Delete User Endpoint (Admin Only)
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id: int = Path(..., description="The ID of the user to delete"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RoleChecker(['admin']))
+):
+    user_to_delete = db.query(User).filter(User.id == user_id).first()
+    if not user_to_delete:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user_to_delete.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Admin cannot delete themselves")
+
+    deleted_user = db.query(User).filter(User.name == "Deleted User").first()
+    if not deleted_user:
+        raise HTTPException(status_code=500, detail="Deleted User placeholder not found")
+
+    db.query(BugReport).filter(BugReport.creator_id == user_id).update({BugReport.creator_id: deleted_user.id})
+    db.query(BugReport).filter(BugReport.recipient_id == user_id).update({BugReport.recipient_id: deleted_user.id})
+
+    # Delete the user
+    db.delete(user_to_delete)
+    db.commit()
+    return {"message": f"User with ID {user_id} has been deleted and their bug reports reassigned"}

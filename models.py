@@ -32,13 +32,13 @@ class BugReport(Base):
     id = Column(Integer, primary_key=True, index=True)
     image_url = Column(String, nullable=False)
     description = Column(Text, nullable=False)
-    recipient_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    recipient_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     recipient = relationship(
         "User",
         foreign_keys=[recipient_id],
         back_populates="received_bug_reports"
     )
-    creator_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    creator_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     creator = relationship(
         "User",
         foreign_keys=[creator_id],
