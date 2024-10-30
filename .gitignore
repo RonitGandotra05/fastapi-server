@@ -22,3 +22,5 @@ __pycache__/
 
 bug_reports.db
 *.db
+alembic/
+alembic.ini
