@@ -23,6 +23,15 @@ def send_media_with_caption(phone_number, media_link, caption, media_type):
             "video": media_link,
             "caption": caption
         }
+    elif media_type == 'video_link':
+        # For large videos, send the link via a text message
+        url = f"https://api.ultramsg.com/instance29265/messages/chat"
+        message_text = f"{caption}\nVideo Link: {media_link}"
+        payload = {
+            "token": token,
+            "to": f"{phone_number}@c.us",
+            "body": message_text
+        }
     else:
         raise ValueError("Unsupported media type")
     headers = {

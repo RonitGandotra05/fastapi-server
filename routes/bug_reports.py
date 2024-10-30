@@ -48,6 +48,7 @@ async def upload_screenshot(
 
     try:
         file_content = await file.read()
+        file_size = len(file_content)
         file_extension = os.path.splitext(file.filename)[1]  # Gets '.png', '.jpg', '.mp4', etc.
         file_name = f"screenshot-{uuid.uuid4()}{file_extension}"
         s3_client.put_object(
@@ -60,6 +61,9 @@ async def upload_screenshot(
         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{file_name}"
 
         media_type = 'video' if 'video' in file.content_type else 'image'
+        
+        if media_type == 'video' and file_size > 16 * 1024 * 1024:
+            media_type = 'video_link'
 
         bug_report = BugReport(
             image_url=image_url,
@@ -76,8 +80,7 @@ async def upload_screenshot(
         
         try:
             if recipient_user:
-                caption = f"""You have been assigned a new bug report by {current_user.name}.
-                Description: {description}
+                caption = f"""You have been assigned a new bug report by {current_user.name}.\n\nDescription: {description}
                 """
                 send_media_with_caption(recipient_user.phone, image_url, caption, media_type)
         except Exception as e:
