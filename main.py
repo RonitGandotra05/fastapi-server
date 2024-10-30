@@ -17,7 +17,6 @@ from pydantic import BaseModel
 from enum import Enum
 import requests
 
-
 load_dotenv()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -95,9 +94,10 @@ class BugReport(Base):
         default=BugStatus.assigned,
         nullable=False
     )
+    media_type = Column(String, nullable=False)  # Added media_type field
 
 # Create the database tables
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
 # Define the FastAPI app
 app = FastAPI()
@@ -192,19 +192,43 @@ def RoleChecker(roles: List[str]):
             raise HTTPException(status_code=403, detail="Access forbidden")
     return role_checker  # Return the function itself
 
-def send_image_with_caption(phone_number, image_link, caption):
-    url = "https://api.ultramsg.com/instance29265/messages/image"  
-    payload = {
-        "token": os.getenv('ULTRAMSG_API_TOKEN'), 
-        "to": f"91{phone_number}@c.us",
-        "image": image_link,
-        "caption": caption
-    }
+def send_media_with_caption(phone_number, media_link, caption, media_type):
+    token = os.getenv('ULTRAMSG_API_TOKEN')
+    if not token:
+        print("Error: ULTRAMSG_API_TOKEN is not set.")
+        return
+
+    if media_type == 'image':
+        url = f"https://api.ultramsg.com/instance29265/messages/image"
+        payload = {
+            "token": token,
+            "to": f"{phone_number}@c.us",
+            "image": media_link,
+            "caption": caption
+        }
+    elif media_type == 'video':
+        url = f"https://api.ultramsg.com/instance29265/messages/video"
+        payload = {
+            "token": token,
+            "to": f"{phone_number}@c.us",
+            "video": media_link,
+            "caption": caption
+        }
+    else:
+        raise ValueError("Unsupported media type")
     headers = {
         "Content-Type": "application/json"
     }
-    response = requests.post(url, json=payload, headers=headers)
-    response.raise_for_status()  
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as err:
+        raise
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        raise
+
 
 
 # Pydantic models
@@ -227,6 +251,7 @@ class BugReportResponse(BaseModel):
     status: BugStatus
     recipient: Optional[str] = None
     creator: str
+    media_type: str  # Added media_type field
 
     class Config:
         from_attributes = True
@@ -242,7 +267,8 @@ class BugReportResponse(BaseModel):
             creator_id=bug_report.creator_id,
             status=bug_report.status.value,
             recipient=bug_report.recipient.name if bug_report.recipient else None,
-            creator=bug_report.creator.email
+            creator=bug_report.creator.email,
+            media_type=bug_report.media_type  # Include media_type
         )
 
 # Registration Endpoint (Admin Only)
@@ -334,22 +360,26 @@ async def upload_screenshot(
 
     try:
         file_content = await file.read()
-        file_name = f"screenshot-{uuid.uuid4()}.png"
+        file_extension = os.path.splitext(file.filename)[1]  # Gets '.png', '.jpg', '.mp4', etc.
+        file_name = f"screenshot-{uuid.uuid4()}{file_extension}"
         s3_client.put_object(
             Bucket=AWS_BUCKET_NAME,
             Key=file_name,
             Body=file_content,
-            ContentType='image/png'
+            ContentType=file.content_type
         )
 
         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{file_name}"
+
+        media_type = 'video' if 'video' in file.content_type else 'image'
 
         bug_report = BugReport(
             image_url=image_url,
             description=description,
             recipient_id=recipient_id,
             creator_id=current_user.id,
-            status=BugStatus.assigned
+            status=BugStatus.assigned,
+            media_type=media_type  # Set media_type
         )
 
         db.add(bug_report)
@@ -361,7 +391,7 @@ async def upload_screenshot(
                 caption = f"""You have been assigned a new bug report by {current_user.name}.
                 Description: {description}
                 """
-                send_image_with_caption(recipient_user.phone, image_url, caption)
+                send_media_with_caption(recipient_user.phone, image_url, caption, media_type)
         except Exception as e:
             print(f"Error sending message to recipient: {e}")
 
@@ -576,10 +606,9 @@ async def assign_bug_report(
         caption = f"""You have been assigned a bug report (ID: {bug_report.id}) by {current_user.name}.
         Description: {bug_report.description}
         """
-        send_image_with_caption(recipient_user.phone, bug_report.image_url, caption)
+        send_media_with_caption(recipient_user.phone, bug_report.image_url, caption, bug_report.media_type)
     except Exception as e:
         print(f"Error sending message to recipient: {e}")
-
 
     return {
         "message": "Bug report recipient updated",
