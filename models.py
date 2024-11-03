@@ -1,7 +1,14 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, Enum as SQLAlchemyEnum
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, Enum as SQLAlchemyEnum, DateTime
+from datetime import datetime
 from sqlalchemy.orm import relationship
 from enum import Enum
 from database import Base
+
+class SeverityLevel(str, Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+
 
 class BugStatus(str, Enum):
     assigned = "assigned"
@@ -50,3 +57,10 @@ class BugReport(Base):
         nullable=False
     )
     media_type = Column(String, nullable=False)
+    modified_date = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    severity = Column(
+        SQLAlchemyEnum(SeverityLevel),
+        default=SeverityLevel.low,
+        nullable=False
+    )
+
