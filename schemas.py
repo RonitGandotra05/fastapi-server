@@ -1,6 +1,8 @@
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
-from models import BugStatus
+from models import BugStatus, SeverityLevel
+from datetime import datetime
+
 
 class UserResponse(BaseModel):
     id: int
@@ -22,6 +24,8 @@ class BugReportResponse(BaseModel):
     recipient: Optional[str] = None
     creator: Optional[str] = None  
     media_type: str
+    modified_date: datetime
+    severity: SeverityLevel
 
     class Config:
         from_attributes = True
@@ -38,8 +42,11 @@ class BugReportResponse(BaseModel):
             status=bug_report.status.value,
             recipient=bug_report.recipient.name if bug_report.recipient else None,
             creator=bug_report.creator.email if bug_report.creator else None,  
-            media_type=bug_report.media_type
+            media_type=bug_report.media_type,
+            modified_date=bug_report.modified_date,
+            severity=bug_report.severity.value
         )
+
 
 class UserUpdate(BaseModel):
     name: Optional[str]

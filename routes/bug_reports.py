@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session, joinedload
 from database import get_db
-from models import User, BugReport, BugStatus
+from models import User, BugReport, BugStatus, SeverityLevel
 from auth import RoleChecker, get_user_by_email
 from schemas import BugReportResponse
 from typing import List, Optional
@@ -33,6 +33,7 @@ async def upload_screenshot(
     file: UploadFile = File(...),
     description: str = Form(...),
     recipient_name: Optional[str] = Form(None),
+    severity: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
@@ -45,6 +46,14 @@ async def upload_screenshot(
     else:
         recipient_user = None
         recipient_id = None
+        
+    if severity is not None:
+        try:
+            severity = SeverityLevel(severity)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid severity level")
+    else:
+        severity = SeverityLevel.low
 
     try:
         file_content = await file.read()
@@ -71,7 +80,8 @@ async def upload_screenshot(
             recipient_id=recipient_id,
             creator_id=current_user.id,
             status=BugStatus.assigned,
-            media_type=media_type
+            media_type=media_type,
+            severity=severity
         )
 
         db.add(bug_report)
@@ -91,7 +101,8 @@ async def upload_screenshot(
             "id": bug_report.id,
             "url": image_url,
             "description": description,
-            "recipient": recipient_user.name if recipient_user else None
+            "recipient": recipient_user.name if recipient_user else None,
+            "severity": severity.value
         }
     except Exception as e:
         db.rollback()
@@ -124,6 +135,7 @@ async def update_bug_report(
     bug_id: int,
     description: Optional[str] = Form(None),
     recipient_email: Optional[str] = Form(None),
+    severity: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
@@ -134,7 +146,7 @@ async def update_bug_report(
     # Check if the current user is the creator or admin
     if not current_user.is_admin and bug_report.creator_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access forbidden")
-
+    
     if description:
         bug_report.description = description
     if recipient_email:
@@ -142,6 +154,11 @@ async def update_bug_report(
         if not recipient_user:
             raise HTTPException(status_code=404, detail="Recipient user not found")
         bug_report.recipient_id = recipient_user.id
+    if severity:
+        try:
+            bug_report.severity = SeverityLevel(severity)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid severity level")
 
     db.commit()
     db.refresh(bug_report)

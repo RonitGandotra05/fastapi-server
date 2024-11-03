@@ -8,6 +8,8 @@ from datetime import timedelta
 import os
 from fastapi.security import OAuth2PasswordRequestForm
 from schemas import UserResponse, UserUpdate
+from utils import send_text_message
+
 
 
 
@@ -37,6 +39,19 @@ def register_user(
     db.add(user)
     db.commit()
     db.refresh(user)
+    
+    # Send credentials via WhatsApp
+    try:
+        message = f"Hello {name},\n\nYour account has been created.\nEmail: {email}\nPassword: {password}\n\nPlease log in to the Bug Tracker Extension to report bugs. \n\n Download: https://chromewebstore.google.com/detail/bugs-report-rz/egjnfjgaagjiigmdedeobeineeopnbff"
+        send_text_message(phone, message)
+    except Exception as e:
+        print(f"Error sending message to user: {e}")
+        # handle failure
+        db.delete(user)
+        db.commit()
+        raise HTTPException(status_code=500, detail="Failed to send credentials to user")
+    
+    
     return {"message": "User registered successfully"}
 
 # Login Endpoint (User Login)
