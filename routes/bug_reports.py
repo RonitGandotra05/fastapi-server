@@ -66,12 +66,14 @@ async def upload_screenshot(
             Body=file_content,
             ContentType=file.content_type
         )
+        
+        allowed_video_extensions = ['.mp4', '.mov', '.3gp']
 
         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{file_name}"
 
         media_type = 'video' if 'video' in file.content_type else 'image'
         
-        if media_type == 'video' and file_size > 16 * 1024 * 1024:
+        if media_type == 'video' and file_size > 16 * 1024 * 1024 or file_extension not in allowed_video_extensions:
             media_type = 'video_link'
 
         bug_report = BugReport(
