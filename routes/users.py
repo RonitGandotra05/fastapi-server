@@ -12,10 +12,75 @@ from utils import send_text_message
 
 
 
+from random import randint
+from datetime import datetime, timedelta
+
 
 router = APIRouter()
 
+
+# Store OTPs securely; in production, use a persistent store or database
+otp_store = {}  # Key: email, Value: {'otp': otp, 'expires_at': datetime}
+
+
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 1440))
+
+
+@router.post("/forgot_password")
+def forgot_password(
+    email: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    user = get_user_by_email(db, email=email)
+    if not user:
+        # To prevent user enumeration, return the same response
+        return {"message": "If an account with that email exists, an OTP has been sent to the registered phone number."}
+
+    # Generate a 6-digit OTP
+    otp = randint(100000, 999999)
+    expires_at = datetime.utcnow() + timedelta(minutes=5)
+
+    # Store the OTP and expiry
+    otp_store[email] = {'otp': otp, 'expires_at': expires_at}
+
+    # Send the OTP via WhatsApp
+    try:
+        message = f"Your password reset OTP is: {otp}. It will expire in 5 minutes."
+        send_text_message(user.phone, message)
+    except Exception as e:
+        print(f"Error sending OTP: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send OTP")
+
+    return {"message": "If an account with that email exists, an OTP has been sent to the registered phone number."}
+
+
+
+@router.post("/reset_password")
+def reset_password(
+    email: str = Form(...),
+    otp: str = Form(...),
+    new_password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    # Verify if the OTP is valid
+    otp_entry = otp_store.get(email)
+    if not otp_entry or otp_entry['otp'] != int(otp) or otp_entry['expires_at'] < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    user = get_user_by_email(db, email=email)
+    if not user:
+        # Should not happen if OTP was sent, but handle just in case
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Update the user's password
+    user.password_hash = get_password_hash(new_password)
+    db.commit()
+
+    # Invalidate the OTP
+    del otp_store[email]
+
+    return {"message": "Your password has been reset successfully"}
+
 
 # Registration Endpoint (Admin Only)
 @router.post("/register")
