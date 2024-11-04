@@ -9,6 +9,8 @@ from utils import send_media_with_caption
 import boto3
 import uuid
 import os
+from datetime import datetime
+
 
 router = APIRouter()
 
@@ -37,8 +39,60 @@ async def upload_screenshot(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
+    # Define allowed file types and size limits
+    ALLOWED_IMAGE_TYPES = {
+        'image/jpeg': '.jpg',
+        'image/png': '.png',
+        'image/gif': '.gif',
+        'image/webp': '.webp',
+        'image/heic': '.heic',
+        'image/heif': '.heif'
+    }
+    
+    ALLOWED_VIDEO_TYPES = {
+        'video/mp4': '.mp4',
+        'video/quicktime': '.mov',
+        'video/x-msvideo': '.avi',
+        'video/webm': '.webm',
+        'video/3gpp': '.3gp'
+    }
+    
+    MAX_IMAGE_SIZE = 50 * 1024 * 1024  # 10MB
+    MAX_VIDEO_SIZE = 500 * 1024 * 1024  # 100MB
+
+    # Validate file type
+    content_type = file.content_type.lower()
+    if content_type not in ALLOWED_IMAGE_TYPES and content_type not in ALLOWED_VIDEO_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed types: {list(ALLOWED_IMAGE_TYPES.keys()) + list(ALLOWED_VIDEO_TYPES.keys())}"
+        )
+
+    # Determine media type and extension
+    if content_type in ALLOWED_IMAGE_TYPES:
+        media_type = 'image'
+        file_extension = ALLOWED_IMAGE_TYPES[content_type]
+    else:
+        media_type = 'video'
+        file_extension = ALLOWED_VIDEO_TYPES[content_type]
+
+    # Read and validate file size
+    file_content = await file.read()
+    file_size = len(file_content)
+    
+    if media_type == 'image' and file_size > MAX_IMAGE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Image size exceeds maximum limit of {MAX_IMAGE_SIZE // (1024 * 1024)}MB"
+        )
+    elif media_type == 'video' and file_size > MAX_VIDEO_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Video size exceeds maximum limit of {MAX_VIDEO_SIZE // (1024 * 1024)}MB"
+        )
+
+    # Handle recipient
     if recipient_name:
-        # Find the recipient user by name
         recipient_user = db.query(User).filter(User.name == recipient_name).first()
         if not recipient_user:
             raise HTTPException(status_code=404, detail="Recipient user not found")
@@ -46,7 +100,8 @@ async def upload_screenshot(
     else:
         recipient_user = None
         recipient_id = None
-        
+
+    # Handle severity
     if severity is not None:
         try:
             severity = SeverityLevel(severity)
@@ -56,24 +111,32 @@ async def upload_screenshot(
         severity = SeverityLevel.low
 
     try:
-        file_content = await file.read()
-        file_size = len(file_content)
-        file_extension = os.path.splitext(file.filename)[1]  # Gets '.png', '.jpg', '.mp4', etc.
-        file_name = f"screenshot-{uuid.uuid4()}{file_extension}"
+        # Generate unique filename and upload to S3
+        file_name = f"{uuid.uuid4()}{file_extension}"
+        
+        # Add metadata for better file management
+        metadata = {
+            'original_filename': file.filename,
+            'upload_date': datetime.utcnow().isoformat(),
+            'uploader': current_user.name,
+            'media_type': media_type
+        }
+        
         s3_client.put_object(
             Bucket=AWS_BUCKET_NAME,
             Key=file_name,
             Body=file_content,
-            ContentType=file.content_type
+            ContentType=content_type,
+            Metadata=metadata
         )
 
         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{file_name}"
 
-        media_type = 'video' if 'video' in file.content_type else 'image'
-        
+        # For very large videos, store as link
         if media_type == 'video' and file_size > 16 * 1024 * 1024:
             media_type = 'video_link'
 
+        # Create bug report
         bug_report = BugReport(
             image_url=image_url,
             description=description,
@@ -81,20 +144,23 @@ async def upload_screenshot(
             creator_id=current_user.id,
             status=BugStatus.assigned,
             media_type=media_type,
-            severity=severity
+            severity=severity,
+            file_size=file_size,
+            original_filename=file.filename
         )
 
         db.add(bug_report)
         db.commit()
         db.refresh(bug_report)
-        
-        try:
-            if recipient_user:
-                caption = f"""You have been assigned a new bug report by {current_user.name}.\n\nDescription: {description}
-                """
+
+        # Send notification if recipient exists
+        if recipient_user:
+            try:
+                caption = f"""You have been assigned a new bug report by {current_user.name}.\n\nDescription: {description}"""
                 send_media_with_caption(recipient_user.phone, image_url, caption, media_type)
-        except Exception as e:
-            print(f"Error sending message to recipient: {e}")
+            except Exception as e:
+                print(f"Error sending message to recipient: {e}")
+                # Continue execution even if notification fails
 
         return {
             "message": "Upload successful",
@@ -102,8 +168,12 @@ async def upload_screenshot(
             "url": image_url,
             "description": description,
             "recipient": recipient_user.name if recipient_user else None,
-            "severity": severity.value
+            "severity": severity.value,
+            "media_type": media_type,
+            "file_size": file_size,
+            "original_filename": file.filename
         }
+
     except Exception as e:
         db.rollback()
         print(f"Error uploading to S3 or saving to DB: {e}")
