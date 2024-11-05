@@ -148,11 +148,10 @@ async def get_users(
     # Remove the first two users (admin and deleted user) from the list
     return [user.name for user in users[2:]]
 
-# Endpoint to get all registered users
 @router.get("/all_users", response_model=List[UserResponse])
 async def get_all_users(
     db: Session = Depends(get_db),
-    current_user: User = Depends(RoleChecker(['admin']))
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     users = db.query(User).all()
     # Remove the first two users (admin and deleted user) from the list
