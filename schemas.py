@@ -26,6 +26,8 @@ class BugReportResponse(BaseModel):
     media_type: str
     modified_date: datetime
     severity: SeverityLevel
+    project_id: Optional[int] = None
+    project_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -44,7 +46,9 @@ class BugReportResponse(BaseModel):
             creator=bug_report.creator.email if bug_report.creator else None,  
             media_type=bug_report.media_type,
             modified_date=bug_report.modified_date,
-            severity=bug_report.severity.value
+            severity=bug_report.severity.value,
+            project_id=bug_report.project_id,
+            project_name=bug_report.project.name if bug_report.project else None,
         )
 
 
@@ -53,6 +57,26 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr]
     phone: Optional[str]
     is_admin: Optional[bool]
+
+    class Config:
+        from_attributes = True
+        
+        
+class ProjectBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class ProjectCreate(ProjectBase):
+    pass
+
+class ProjectUpdate(BaseModel):
+    name: Optional[str]
+    description: Optional[str] = None
+
+class ProjectResponse(ProjectBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
