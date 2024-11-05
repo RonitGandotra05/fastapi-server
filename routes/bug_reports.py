@@ -206,11 +206,10 @@ async def delete_bug_report(
     db.commit()
     return {"message": "Bug report deleted"}
 
-# List Bug Reports (Admin Only)
 @router.get("/bug_reports", response_model=List[BugReportResponse])
 async def list_bug_reports(
     db: Session = Depends(get_db),
-    current_user: User = Depends(RoleChecker(['admin']))
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     bug_reports = db.query(BugReport).options(
         joinedload(BugReport.recipient),
