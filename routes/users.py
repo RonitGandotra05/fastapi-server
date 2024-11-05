@@ -10,21 +10,15 @@ from fastapi.security import OAuth2PasswordRequestForm
 from schemas import UserResponse, UserUpdate
 from utils import send_text_message
 
-
-
 from random import randint
 from datetime import datetime, timedelta
 
-
 router = APIRouter()
-
 
 # Store OTPs securely; in production, use a persistent store or database
 otp_store = {}  # Key: email, Value: {'otp': otp, 'expires_at': datetime}
 
-
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 1440))
-
 
 @router.post("/forgot_password")
 def forgot_password(
@@ -53,8 +47,6 @@ def forgot_password(
 
     return {"message": "If an account with that email exists, an OTP has been sent to the registered phone number."}
 
-
-
 @router.post("/reset_password")
 def reset_password(
     email: str = Form(...),
@@ -80,7 +72,6 @@ def reset_password(
     del otp_store[email]
 
     return {"message": "Your password has been reset successfully"}
-
 
 # Registration Endpoint (Admin Only)
 @router.post("/register")
@@ -116,10 +107,9 @@ def register_user(
         db.commit()
         raise HTTPException(status_code=500, detail="Failed to send credentials to user")
     
-    
     return {"message": "User registered successfully"}
 
-# Login Endpoint (User Login)
+# Merged Login Endpoint (User and Admin Login)
 @router.post("/login")
 def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -128,32 +118,16 @@ def login_for_access_token(
     user = get_user_by_email(db, email=form_data.username)
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
-    if user.is_admin:
-        raise HTTPException(status_code=403, detail="Please use the admin login endpoint")
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.email},
         expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
-
-# Admin Login Endpoint
-@router.post("/admin_login")
-def admin_login_for_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
-):
-    user = get_user_by_email(db, email=form_data.username)
-    if not user or not verify_password(form_data.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Incorrect email or password")
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin privileges required")
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.email},
-        expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "is_admin": user.is_admin
+    }
 
 # Logout Endpoint (Accessible by all authenticated users)
 @router.post("/logout")
@@ -182,7 +156,6 @@ async def get_all_users(
     users = db.query(User).all()
     # Remove the first two users (admin and deleted user) from the list
     return users[2:]
-
 
 # Optional: Endpoint to get current user info (Accessible by both users and admins)
 @router.get("/users/me")
