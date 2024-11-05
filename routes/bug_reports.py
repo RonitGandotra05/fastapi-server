@@ -73,7 +73,7 @@ async def upload_screenshot(
 
         media_type = 'video' if 'video' in file.content_type else 'image'
         
-        if media_type == 'video' and file_size > 16 * 1024 * 1024 or file_extension not in allowed_video_extensions:
+        if media_type == 'video' and (file_size > 16 * 1024 * 1024 or file_extension not in allowed_video_extensions):
             media_type = 'video_link'
 
         bug_report = BugReport(
