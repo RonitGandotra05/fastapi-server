@@ -126,7 +126,8 @@ def login_for_access_token(
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "is_admin": user.is_admin
+        "is_admin": user.is_admin,
+        "id": user.id
     }
 
 # Logout Endpoint (Accessible by all authenticated users)
