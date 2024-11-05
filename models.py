@@ -63,4 +63,16 @@ class BugReport(Base):
         default=SeverityLevel.low,
         nullable=False
     )
+    project_id = Column(Integer, ForeignKey('projects.id', ondelete='SET NULL'), nullable=True)
+    project = relationship('Project', back_populates='bug_reports')
 
+class Project(Base):
+    __tablename__ = 'projects'
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)
+    description = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    bug_reports = relationship('BugReport', back_populates='project')

@@ -9,7 +9,7 @@ import os
 load_dotenv()
 
 from middleware import log_requests_middleware
-from routes import users, bug_reports
+from routes import users, bug_reports, projects
 from database import Base, engine
 
 Base.metadata.create_all(bind=engine)
@@ -52,3 +52,4 @@ app.add_middleware(BaseHTTPMiddleware, dispatch=log_requests_middleware)
 # Include routers
 app.include_router(users.router)
 app.include_router(bug_reports.router)
+app.include_router(projects.router)
