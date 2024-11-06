@@ -194,6 +194,21 @@ def update_user(
     db.refresh(user)
     return user
 
+# Endpoint to toggle a user as admin (Admin Only)
+@router.put("/users/{user_id}/toggle_admin")
+def toggle_admin(
+    user_id: int = Path(..., description="The ID of the user to toggle admin status"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RoleChecker(['admin']))
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+         raise HTTPException(status_code=404, detail="User not found")
+    user.is_admin = not user.is_admin
+    db.commit()
+    db.refresh(user)
+    return {"message": f"User {user.name} is now {'an admin' if user.is_admin else 'not an admin'}"}
+
 # Delete User Endpoint (Admin Only)
 @router.delete("/users/{user_id}")
 def delete_user(
