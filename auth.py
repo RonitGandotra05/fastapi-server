@@ -11,7 +11,7 @@ import os
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key')  # Use a secure method in production
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1440
+ACCESS_TOKEN_EXPIRE_MINUTES = 52560000
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
