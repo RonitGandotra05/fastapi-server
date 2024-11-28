@@ -9,6 +9,8 @@ from utils import send_media_with_caption
 import boto3
 import uuid
 import os
+from utils import send_text_message
+from sqlalchemy.orm import joinedload
 
 router = APIRouter()
 
@@ -224,13 +226,18 @@ async def toggle_bug_report_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
-    bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
+    bug_report = db.query(BugReport).options(
+        joinedload(BugReport.creator)
+    ).filter(BugReport.id == bug_id).first()
+    
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
 
     # Check if the current user is involved in the bug report
     if not current_user.is_admin and current_user.id not in [bug_report.creator_id, bug_report.recipient_id]:
         raise HTTPException(status_code=403, detail="Access forbidden")
+
+    previous_status = bug_report.status
 
     # Toggle the status
     if bug_report.status == BugStatus.assigned:
@@ -239,8 +246,24 @@ async def toggle_bug_report_status(
         bug_report.status = BugStatus.assigned
     else:
         raise HTTPException(status_code=400, detail="Invalid bug report status")
+
     db.commit()
     db.refresh(bug_report)
+
+    # If the status was changed to resolved, send a notification to the creator
+    if previous_status != BugStatus.resolved and bug_report.status == BugStatus.resolved:
+        creator = bug_report.creator  # Access the creator via relationship
+
+        if creator and creator.phone:
+            message = f"Hello {creator.name}, your bug report (ID: {bug_report.id}) has been resolved."
+            try:
+                send_text_message(creator.phone, message)
+            except Exception as e:
+                # Log the error; in production, consider using a logging framework
+                print(f"Failed to send message to {creator.name} ({creator.phone}): {e}")
+        else:
+            print(f"Creator's phone number is missing for bug report ID {bug_id}.")
+
     return {
         "message": "Bug report status toggled",
         "bug_report": BugReportResponse.from_bug_report(bug_report)
