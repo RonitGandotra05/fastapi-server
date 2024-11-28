@@ -279,7 +279,7 @@ async def get_bug_reports_assigned_to_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Check if the current user is the user in question or admin
-    if not current_user.is_admin and current_user.id != user_id:
+    if current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Access forbidden")
 
     bug_reports = db.query(BugReport).options(
