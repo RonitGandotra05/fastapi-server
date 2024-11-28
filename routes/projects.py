@@ -45,7 +45,7 @@ def add_bug_report_to_project(
     project_id: int,
     bug_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(RoleChecker(['admin']))
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -63,7 +63,7 @@ def remove_bug_report_from_project(
     project_id: int,
     bug_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(RoleChecker(['admin']))
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
     if not bug_report:
