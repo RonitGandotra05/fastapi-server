@@ -264,7 +264,7 @@ async def toggle_bug_report_status(
                       f"Description: {bug_report.description}\n" \
                       f"Severity: {bug_report.severity}\n\n" \
                       f"Project: {bug_report.project.name if bug_report.project else 'No Project'}\n" \
-                      f"View the bug report: {bug_report.image_url}"
+                     
 
             try:
                 # Send image/video with caption to the creator
