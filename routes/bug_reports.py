@@ -12,6 +12,8 @@ import os
 from utils import send_text_message
 from sqlalchemy.orm import joinedload
 
+
+
 router = APIRouter()
 
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
@@ -226,20 +228,24 @@ async def toggle_bug_report_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
+    # Fetch the bug report by ID with necessary relationships
     bug_report = db.query(BugReport).options(
-        joinedload(BugReport.creator)
+        joinedload(BugReport.creator),
+        joinedload(BugReport.recipient),
+        joinedload(BugReport.project)  # Ensure the project is loaded as well
     ).filter(BugReport.id == bug_id).first()
     
-    if bug_report is None:
+    if not bug_report:
         raise HTTPException(status_code=404, detail="Bug report not found")
 
-    # Check if the current user is involved in the bug report
+    # Check if the current user is allowed to toggle the status (admin or involved in the report)
     if not current_user.is_admin and current_user.id not in [bug_report.creator_id, bug_report.recipient_id]:
         raise HTTPException(status_code=403, detail="Access forbidden")
 
+    # Save previous status for potential notifications
     previous_status = bug_report.status
 
-    # Toggle the status
+    # Toggle the bug report status
     if bug_report.status == BugStatus.assigned:
         bug_report.status = BugStatus.resolved
     elif bug_report.status == BugStatus.resolved:
@@ -253,22 +259,25 @@ async def toggle_bug_report_status(
     # If the status was changed to resolved, send a notification to the creator
     if previous_status != BugStatus.resolved and bug_report.status == BugStatus.resolved:
         creator = bug_report.creator  # Access the creator via relationship
-
         if creator and creator.phone:
-            message = f"Hello {creator.name}, your bug report (ID: {bug_report.id}) has been resolved."
+            caption = f"Hello {creator.name}, your bug report (ID: {bug_report.id}) has been resolved.\n\n" \
+                      f"Description: {bug_report.description}\n" \
+                      f"Severity: {bug_report.severity}\n\n" \
+                      f"Project: {bug_report.project.name if bug_report.project else 'No Project'}"
+
             try:
-                send_text_message(creator.phone, message)
+                # Send image/video with caption to the creator
+                send_media_with_caption(creator.phone, bug_report.image_url, caption, bug_report.media_type)
             except Exception as e:
-                # Log the error; in production, consider using a logging framework
                 print(f"Failed to send message to {creator.name} ({creator.phone}): {e}")
         else:
             print(f"Creator's phone number is missing for bug report ID {bug_id}.")
 
+    # Return the updated bug report as a response using BugReportResponse
     return {
         "message": "Bug report status toggled",
         "bug_report": BugReportResponse.from_bug_report(bug_report)
     }
-
 # Get Bug Reports Created by User (Accessible by both users and admins)
 @router.get("/users/{user_id}/created_bug_reports", response_model=List[BugReportResponse])
 async def get_bug_reports_created_by_user(
