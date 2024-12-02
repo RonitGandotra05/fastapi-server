@@ -221,7 +221,6 @@ async def list_bug_reports(
     ).all()
     return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
 
-# Toggle Bug Report Status (Accessible by both users and admins)
 @router.put("/bug_reports/{bug_id}/toggle_status")
 async def toggle_bug_report_status(
     bug_id: int,
@@ -260,10 +259,12 @@ async def toggle_bug_report_status(
     if previous_status != BugStatus.resolved and bug_report.status == BugStatus.resolved:
         creator = bug_report.creator  # Access the creator via relationship
         if creator and creator.phone:
+            # Create the caption message
             caption = f"Hello {creator.name}, your bug report (ID: {bug_report.id}) has been resolved.\n\n" \
                       f"Description: {bug_report.description}\n" \
                       f"Severity: {bug_report.severity}\n\n" \
-                      f"Project: {bug_report.project.name if bug_report.project else 'No Project'}"
+                      f"Project: {bug_report.project.name if bug_report.project else 'No Project'}\n" \
+                      f"View the bug report: {bug_report.image_url}"
 
             try:
                 # Send image/video with caption to the creator
@@ -278,6 +279,8 @@ async def toggle_bug_report_status(
         "message": "Bug report status toggled",
         "bug_report": BugReportResponse.from_bug_report(bug_report)
     }
+
+
 # Get Bug Reports Created by User (Accessible by both users and admins)
 @router.get("/users/{user_id}/created_bug_reports", response_model=List[BugReportResponse])
 async def get_bug_reports_created_by_user(
