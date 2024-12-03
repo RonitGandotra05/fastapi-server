@@ -40,31 +40,17 @@ class BugReport(Base):
     image_url = Column(String, nullable=False)
     description = Column(Text, nullable=False)
     recipient_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
-    recipient = relationship(
-        "User",
-        foreign_keys=[recipient_id],
-        back_populates="received_bug_reports"
-    )
+    recipient = relationship("User", foreign_keys=[recipient_id], back_populates="received_bug_reports")
     creator_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
-    creator = relationship(
-        "User",
-        foreign_keys=[creator_id],
-        back_populates="created_bug_reports"
-    )
-    status = Column(
-        SQLAlchemyEnum(BugStatus),
-        default=BugStatus.assigned,
-        nullable=False
-    )
+    creator = relationship("User", foreign_keys=[creator_id], back_populates="created_bug_reports")
+    status = Column(SQLAlchemyEnum(BugStatus), default=BugStatus.assigned, nullable=False)
     media_type = Column(String, nullable=False)
     modified_date = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    severity = Column(
-        SQLAlchemyEnum(SeverityLevel),
-        default=SeverityLevel.low,
-        nullable=False
-    )
+    severity = Column(SQLAlchemyEnum(SeverityLevel), default=SeverityLevel.low, nullable=False)
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='SET NULL'), nullable=True)
     project = relationship('Project', back_populates='bug_reports')
+    # Add the new tab_url column
+    tab_url = Column(String, nullable=True)
 
 class Project(Base):
     __tablename__ = 'projects'
