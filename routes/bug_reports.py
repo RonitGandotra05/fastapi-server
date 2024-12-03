@@ -31,19 +31,18 @@ s3_client = boto3.client(
     region_name=AWS_REGION
 )
 
-# Upload Endpoint (Accessible by both users and admins)
 @router.post("/upload")
 async def upload_screenshot(
     file: UploadFile = File(...),
     description: str = Form(...),
     recipient_name: Optional[str] = Form(None),
     severity: Optional[str] = Form(None),
-    db: Session = Depends(get_db),
     project_id: Optional[int] = Form(None),
+    tab_url: Optional[str] = Form(None),  # Add this line
+    db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     if recipient_name:
-        # Find the recipient user by name
         recipient_user = db.query(User).filter(User.name == recipient_name).first()
         if not recipient_user:
             raise HTTPException(status_code=404, detail="Recipient user not found")
@@ -51,14 +50,14 @@ async def upload_screenshot(
     else:
         recipient_user = None
         recipient_id = None
-        
+
     if project_id:
         project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
     else:
         project = None
-    
+
     if severity is not None:
         try:
             severity = SeverityLevel(severity)
@@ -70,7 +69,7 @@ async def upload_screenshot(
     try:
         file_content = await file.read()
         file_size = len(file_content)
-        file_extension = os.path.splitext(file.filename)[1]  # Gets '.png', '.jpg', '.mp4', etc.
+        file_extension = os.path.splitext(file.filename)[1]
         file_name = f"screenshot-{uuid.uuid4()}{file_extension}"
         s3_client.put_object(
             Bucket=AWS_BUCKET_NAME,
@@ -78,13 +77,11 @@ async def upload_screenshot(
             Body=file_content,
             ContentType=file.content_type
         )
-        
-        allowed_video_extensions = ['.mp4', '.mov', '.3gp']
 
+        allowed_video_extensions = ['.mp4', '.mov', '.3gp']
         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{file_name}"
 
         media_type = 'video' if 'video' in file.content_type else 'image'
-        
         if media_type == 'video' and (file_size > 16 * 1024 * 1024 or file_extension not in allowed_video_extensions):
             media_type = 'video_link'
 
@@ -96,17 +93,17 @@ async def upload_screenshot(
             project_id=project.id if project else None,
             status=BugStatus.assigned,
             media_type=media_type,
-            severity=severity
+            severity=severity,
+            tab_url=tab_url  # Add this line
         )
 
         db.add(bug_report)
         db.commit()
         db.refresh(bug_report)
-        
+
         try:
             if recipient_user:
-                caption = f"""You have been assigned a new bug report by {current_user.name}.\n\nDescription: {description}
-                """
+                caption = f"""You have been assigned a new bug report by {current_user.name}.\n\nDescription: {description}"""
                 send_media_with_caption(recipient_user.phone, image_url, caption, media_type)
         except Exception as e:
             print(f"Error sending message to recipient: {e}")
@@ -117,8 +114,10 @@ async def upload_screenshot(
             "url": image_url,
             "description": description,
             "recipient": recipient_user.name if recipient_user else None,
-            "severity": severity.value
+            "severity": severity.value,
+            "tab_url": tab_url  # Optionally include in response
         }
+
     except Exception as e:
         db.rollback()
         print(f"Error uploading to S3 or saving to DB: {e}")
@@ -264,7 +263,7 @@ async def toggle_bug_report_status(
                       f"Description: {bug_report.description}\n" \
                       f"Severity: {bug_report.severity}\n\n" \
                       f"Project: {bug_report.project.name if bug_report.project else 'No Project'}\n" \
-                      f"View the bug report: {bug_report.image_url}"
+                    #   f"View the bug report: {bug_report.image_url}"
 
             try:
                 # Send image/video with caption to the creator

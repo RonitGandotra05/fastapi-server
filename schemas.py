@@ -28,6 +28,8 @@ class BugReportResponse(BaseModel):
     severity: SeverityLevel
     project_id: Optional[int] = None
     project_name: Optional[str] = None
+    # Add tab_url
+    tab_url: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -49,8 +51,8 @@ class BugReportResponse(BaseModel):
             severity=bug_report.severity.value,
             project_id=bug_report.project_id,
             project_name=bug_report.project.name if bug_report.project else None,
+            tab_url=bug_report.tab_url  # Add this line
         )
-
 
 class UserUpdate(BaseModel):
     name: Optional[str]
