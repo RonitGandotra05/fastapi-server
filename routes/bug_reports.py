@@ -251,7 +251,7 @@ async def toggle_bug_report_status(
         if creator and creator.phone:
             caption = (
                 f"Hello {creator.name}, your bug report (ID: {bug_report.id}) has been resolved.\n\n"
-                f"Description: {bug_report.description}\n"
+                f"Description: {bug_report.description}\n\n"
                 f"Severity: {bug_report.severity}\n\n"
                 f"Project: {bug_report.project.name if bug_report.project else 'No Project'}\n\n"
                 # Add toggler information here:

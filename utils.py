@@ -9,7 +9,7 @@ def send_media_with_caption(phone_number, media_link, caption, media_type, tab_u
 
     # If tab_url is provided, append it to the caption.
     if tab_url:
-        caption = f"{caption}\nTab URL: {tab_url}"
+        caption = f"{caption}\n\nTab URL: {tab_url}"
 
     if media_type == 'image':
         url = f"https://api.ultramsg.com/instance29265/messages/image"
