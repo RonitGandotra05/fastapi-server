@@ -255,7 +255,7 @@ async def toggle_bug_report_status(
                 f"Severity: {bug_report.severity}\n\n"
                 f"Project: {bug_report.project.name if bug_report.project else 'No Project'}\n\n"
                 # Add toggler information here:
-                f"Toggled by: {current_user.name} ({current_user.email})"
+                f"Resolved by: {current_user.name} ({current_user.email})"
             )
             try:
                 send_media_with_caption(
