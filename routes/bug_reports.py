@@ -5,14 +5,10 @@ from models import User, BugReport, BugStatus, SeverityLevel, Project
 from auth import RoleChecker, get_user_by_email
 from schemas import BugReportResponse
 from typing import List, Optional
-from utils import send_media_with_caption
+from utils import send_media_with_caption, send_text_message
 import boto3
 import uuid
 import os
-from utils import send_text_message
-from sqlalchemy.orm import joinedload
-
-
 
 router = APIRouter()
 
@@ -38,7 +34,7 @@ async def upload_screenshot(
     recipient_name: Optional[str] = Form(None),
     severity: Optional[str] = Form(None),
     project_id: Optional[int] = Form(None),
-    tab_url: Optional[str] = Form(None),  # Add this line
+    tab_url: Optional[str] = Form(None),  # tab_url parameter added
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
@@ -94,7 +90,7 @@ async def upload_screenshot(
             status=BugStatus.assigned,
             media_type=media_type,
             severity=severity,
-            tab_url=tab_url  # Add this line
+            tab_url=tab_url  # Storing tab_url in DB
         )
 
         db.add(bug_report)
@@ -103,8 +99,15 @@ async def upload_screenshot(
 
         try:
             if recipient_user:
-                caption = f"""You have been assigned a new bug report by {current_user.name}.\n\nDescription: {description}"""
-                send_media_with_caption(recipient_user.phone, image_url, caption, media_type)
+                caption = f"You have been assigned a new bug report by {current_user.name}.\n\nDescription: {description}"
+                # Pass tab_url from bug_report
+                send_media_with_caption(
+                    phone_number=recipient_user.phone,
+                    media_link=image_url,
+                    caption=caption,
+                    media_type=media_type,
+                    tab_url=bug_report.tab_url
+                )
         except Exception as e:
             print(f"Error sending message to recipient: {e}")
 
@@ -115,7 +118,7 @@ async def upload_screenshot(
             "description": description,
             "recipient": recipient_user.name if recipient_user else None,
             "severity": severity.value,
-            "tab_url": tab_url  # Optionally include in response
+            "tab_url": tab_url
         }
 
     except Exception as e:
@@ -123,7 +126,6 @@ async def upload_screenshot(
         print(f"Error uploading to S3 or saving to DB: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
-# Read Bug Report (Accessible by both users and admins)
 @router.get("/bug_reports/{bug_id}", response_model=BugReportResponse)
 async def read_bug_report(
     bug_id: int,
@@ -137,13 +139,11 @@ async def read_bug_report(
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
 
-    # Check if the current user is involved in the bug report
     if not current_user.is_admin and current_user.id not in [bug_report.creator_id, bug_report.recipient_id]:
         raise HTTPException(status_code=403, detail="Access forbidden")
 
     return BugReportResponse.from_bug_report(bug_report)
 
-# Update Bug Report (Accessible by both users and admins)
 @router.put("/bug_reports/{bug_id}")
 async def update_bug_report(
     bug_id: int,
@@ -157,10 +157,9 @@ async def update_bug_report(
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
 
-    # Check if the current user is the creator or admin
     if not current_user.is_admin and bug_report.creator_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access forbidden")
-    
+
     if description:
         bug_report.description = description
     if recipient_email:
@@ -181,7 +180,6 @@ async def update_bug_report(
         "bug_report": BugReportResponse.from_bug_report(bug_report)
     }
 
-# Delete Bug Report (Accessible by both users and admins)
 @router.delete("/bug_reports/{bug_id}")
 async def delete_bug_report(
     bug_id: int,
@@ -192,11 +190,9 @@ async def delete_bug_report(
     if bug_report is None:
         raise HTTPException(status_code=404, detail="Bug report not found")
 
-    # Check if the current user is the creator or admin
     if not current_user.is_admin and bug_report.creator_id != current_user.id:
         raise HTTPException(status_code=403, detail="Access forbidden")
 
-    # Delete the image from S3
     try:
         s3_key = bug_report.image_url.split(
             f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/"
@@ -226,24 +222,19 @@ async def toggle_bug_report_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
-    # Fetch the bug report by ID with necessary relationships
     bug_report = db.query(BugReport).options(
         joinedload(BugReport.creator),
         joinedload(BugReport.recipient),
-        joinedload(BugReport.project)  # Ensure the project is loaded as well
+        joinedload(BugReport.project)
     ).filter(BugReport.id == bug_id).first()
-    
+
     if not bug_report:
         raise HTTPException(status_code=404, detail="Bug report not found")
 
-    # Check if the current user is allowed to toggle the status (admin or involved in the report)
     if not current_user.is_admin and current_user.id not in [bug_report.creator_id, bug_report.recipient_id]:
         raise HTTPException(status_code=403, detail="Access forbidden")
 
-    # Save previous status for potential notifications
     previous_status = bug_report.status
-
-    # Toggle the bug report status
     if bug_report.status == BugStatus.assigned:
         bug_report.status = BugStatus.resolved
     elif bug_report.status == BugStatus.resolved:
@@ -254,33 +245,41 @@ async def toggle_bug_report_status(
     db.commit()
     db.refresh(bug_report)
 
-    # If the status was changed to resolved, send a notification to the creator
+    # If status changed to resolved, notify the creator
     if previous_status != BugStatus.resolved and bug_report.status == BugStatus.resolved:
-        creator = bug_report.creator  # Access the creator via relationship
+        creator = bug_report.creator
         if creator and creator.phone:
-            # Create the caption message
-            caption = f"Hello {creator.name}, your bug report (ID: {bug_report.id}) has been resolved.\n\n" \
-                      f"Description: {bug_report.description}\n" \
-                      f"Severity: {bug_report.severity}\n\n" \
-                      f"Project: {bug_report.project.name if bug_report.project else 'No Project'}\n" \
-                    #   f"View the bug report: {bug_report.image_url}"
-
+            caption = (
+                f"Hello {creator.name}, your bug report (ID: {bug_report.id}) has been resolved.\n\n"
+                f"Description: {bug_report.description}\n"
+                f"Severity: {bug_report.severity}\n\n"
+                f"Project: {bug_report.project.name if bug_report.project else 'No Project'}\n\n"
+                # Add toggler information here:
+                f"Toggled by: {current_user.name} ({current_user.email})"
+            )
             try:
-                # Send image/video with caption to the creator
-                send_media_with_caption(creator.phone, bug_report.image_url, caption, bug_report.media_type)
+                send_media_with_caption(
+                    creator.phone,
+                    bug_report.image_url,
+                    caption,
+                    bug_report.media_type,
+                    tab_url=bug_report.tab_url
+                )
             except Exception as e:
                 print(f"Failed to send message to {creator.name} ({creator.phone}): {e}")
         else:
             print(f"Creator's phone number is missing for bug report ID {bug_id}.")
 
-    # Return the updated bug report as a response using BugReportResponse
     return {
         "message": "Bug report status toggled",
-        "bug_report": BugReportResponse.from_bug_report(bug_report)
+        "bug_report": BugReportResponse.from_bug_report(bug_report),
+        "toggled_by": {
+            "id": current_user.id,
+            "name": current_user.name,
+            "email": current_user.email
+        }
     }
 
-
-# Get Bug Reports Created by User (Accessible by both users and admins)
 @router.get("/users/{user_id}/created_bug_reports", response_model=List[BugReportResponse])
 async def get_bug_reports_created_by_user(
     user_id: int,
@@ -291,7 +290,6 @@ async def get_bug_reports_created_by_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Check if the current user is the user in question or admin
     if not current_user.is_admin and current_user.id != user_id:
         raise HTTPException(status_code=403, detail="Access forbidden")
 
@@ -301,7 +299,6 @@ async def get_bug_reports_created_by_user(
     ).filter(BugReport.creator_id == user_id).all()
     return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
 
-# Get Bug Reports Assigned to User (Accessible by both users and admins)
 @router.get("/users/{user_id}/received_bug_reports", response_model=List[BugReportResponse])
 async def get_bug_reports_assigned_to_user(
     user_id: int,
@@ -312,8 +309,7 @@ async def get_bug_reports_assigned_to_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Check if the current user is the user in question or admin
-    if current_user.id != user_id:
+    if current_user.id != user_id and not current_user.is_admin:
         raise HTTPException(status_code=403, detail="Access forbidden")
 
     bug_reports = db.query(BugReport).options(
@@ -322,7 +318,6 @@ async def get_bug_reports_assigned_to_user(
     ).filter(BugReport.recipient_id == user_id).all()
     return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
 
-# Assign or Reassign Recipient to Bug Report (Admin Only)
 @router.put("/bug_reports/{bug_id}/assign")
 async def assign_bug_report(
     bug_id: int,
@@ -330,26 +325,27 @@ async def assign_bug_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['admin']))
 ):
-    # Fetch the bug report by ID
     bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
     if not bug_report:
         raise HTTPException(status_code=404, detail="Bug report not found")
 
-    # Fetch the recipient user by name
     recipient_user = db.query(User).filter(User.name == recipient_name).first()
     if not recipient_user:
         raise HTTPException(status_code=404, detail="Recipient user not found")
 
-    # Update the recipient of the bug report
     bug_report.recipient_id = recipient_user.id
     db.commit()
     db.refresh(bug_report)
-    
+
     try:
-        caption = f"""You have been assigned a bug report (ID: {bug_report.id}) by {current_user.name}.
-        Description: {bug_report.description}
-        """
-        send_media_with_caption(recipient_user.phone, bug_report.image_url, caption, bug_report.media_type)
+        caption = f"You have been assigned a bug report (ID: {bug_report.id}) by {current_user.name}.\nDescription: {bug_report.description}"
+        send_media_with_caption(
+            recipient_user.phone,
+            bug_report.image_url,
+            caption,
+            bug_report.media_type,
+            tab_url=bug_report.tab_url
+        )
     except Exception as e:
         print(f"Error sending message to recipient: {e}")
 

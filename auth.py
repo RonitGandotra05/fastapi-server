@@ -11,7 +11,7 @@ import os
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key')  # Use a secure method in production
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 14400
+# ACCESS_TOKEN_EXPIRE_MINUTES = 14400  # Removed, no longer used
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -28,12 +28,23 @@ def get_user_by_email(db: Session, email: str):
     return db.query(User).filter(User.email == email).first()
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """
+    Create a JWT token without an expiration time.
+
+    Args:
+        data (dict): The data to encode in the token.
+        expires_delta (Optional[timedelta], optional): Time until expiration. Defaults to None.
+
+    Returns:
+        str: The encoded JWT token.
+    """
     to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=30)
-    to_encode.update({"exp": expire})
+    # Remove expiration logic to make token inexorable
+    # if expires_delta:
+    #     expire = datetime.utcnow() + expires_delta
+    # else:
+    #     expire = datetime.utcnow() + timedelta(minutes=30)
+    # to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 

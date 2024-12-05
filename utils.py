@@ -1,11 +1,15 @@
 import os
 import requests
 
-def send_media_with_caption(phone_number, media_link, caption, media_type):
+def send_media_with_caption(phone_number, media_link, caption, media_type, tab_url=None):
     token = os.getenv('ULTRAMSG_API_TOKEN')
     if not token:
         print("Error: ULTRAMSG_API_TOKEN is not set.")
         return
+
+    # If tab_url is provided, append it to the caption.
+    if tab_url:
+        caption = f"{caption}\nTab URL: {tab_url}"
 
     if media_type == 'image':
         url = f"https://api.ultramsg.com/instance29265/messages/image"
@@ -34,6 +38,7 @@ def send_media_with_caption(phone_number, media_link, caption, media_type):
         }
     else:
         raise ValueError("Unsupported media type")
+
     headers = {
         "Content-Type": "application/json"
     }
