@@ -9,10 +9,19 @@ class SeverityLevel(str, Enum):
     medium = "medium"
     high = "high"
 
-
 class BugStatus(str, Enum):
     assigned = "assigned"
     resolved = "resolved"
+
+class BugReportCC(Base):
+    __tablename__ = 'bug_report_cc'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    bug_report_id = Column(Integer, ForeignKey('bug_reports.id', ondelete='CASCADE'))
+    cc_recipient_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'))
+    
+    bug_report = relationship("BugReport", back_populates="cc_recipients")
+    cc_recipient = relationship("User")
 
 class User(Base):
     __tablename__ = 'users'
@@ -49,8 +58,8 @@ class BugReport(Base):
     severity = Column(SQLAlchemyEnum(SeverityLevel), default=SeverityLevel.low, nullable=False)
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='SET NULL'), nullable=True)
     project = relationship('Project', back_populates='bug_reports')
-    # Add the new tab_url column
     tab_url = Column(String, nullable=True)
+    cc_recipients = relationship("BugReportCC", back_populates="bug_report", cascade="all, delete-orphan")
 
 class Project(Base):
     __tablename__ = 'projects'
