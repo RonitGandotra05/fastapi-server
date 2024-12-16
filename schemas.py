@@ -3,7 +3,6 @@ from typing import Optional, List
 from models import BugStatus, SeverityLevel
 from datetime import datetime
 
-
 class UserResponse(BaseModel):
     id: int
     name: str
@@ -28,8 +27,8 @@ class BugReportResponse(BaseModel):
     severity: SeverityLevel
     project_id: Optional[int] = None
     project_name: Optional[str] = None
-    # Add tab_url
     tab_url: Optional[str] = None
+    cc_recipients: List[str] = []
 
     class Config:
         from_attributes = True
@@ -51,9 +50,9 @@ class BugReportResponse(BaseModel):
             severity=bug_report.severity.value,
             project_id=bug_report.project_id,
             project_name=bug_report.project.name if bug_report.project else None,
-            tab_url=bug_report.tab_url  # Add this line
+            tab_url=bug_report.tab_url,
+            cc_recipients=[cc.cc_recipient.name for cc in bug_report.cc_recipients]
         )
-
 class UserUpdate(BaseModel):
     name: Optional[str]
     email: Optional[EmailStr]
