@@ -54,7 +54,7 @@ async def upload_screenshot(
         cc_recipient_users = []
         if cc_recipients:
             print(f"Processing CC recipients: {cc_recipients}")
-            cc_names = [name.strip() for name in cc_recipients.split(',') if name.strip()]
+            cc_names = [name for name in cc_recipients.split(',') if name]
             
             if len(cc_names) > 4:
                 raise HTTPException(status_code=400, detail="Maximum 4 CC recipients allowed")
