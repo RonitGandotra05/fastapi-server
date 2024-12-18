@@ -489,7 +489,7 @@ async def assign_bug_report(
     try:
         caption = (
             f"*New Bug Report Assignment*\n"
-            f"━━━━━━━━━━━━━━━━\n\n"
+            f"━━━━━━━━━━━���━━━━\n\n"
             f"You have been assigned a bug report by {current_user.name}.\n\n"
             f"*Bug Report ID:*\n{bug_report.id}\n\n"
             f"*Description:*\n{bug_report.description}"
@@ -555,23 +555,7 @@ async def send_bug_report_reminder(
             f"*Reminder from:*\n{current_user.name}"
         )
 
-        # CC recipients message
-        cc_caption = (
-            f"Hi {cc_recipient.name},\n\n"
-            f"A reminder has been sent for a bug report you were CC'd on. "
-            f"{current_user.name} has requested an update from {bug_report.recipient.name}. "
-            f"You can track the progress here: {bug_link}\n\n"
-            f"*Bug Report Details:*\n"
-            f"━━━━━━━━━━━━━━━━\n\n"
-            f"*ID:*\n{bug_report.id}\n\n"
-            f"*Description:*\n{bug_report.description}\n\n"
-            f"*Severity:*\n{bug_report.severity.value}\n\n"
-            f"*Status:*\n{bug_report.status.value}\n\n"
-            f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
-            f"*Originally Assigned:*\n{formatted_date}"
-        )
-
-        # Send reminder to main recipient
+        # Send to main recipient
         if bug_report.recipient and bug_report.recipient.phone:
             try:
                 send_media_with_caption(
@@ -588,10 +572,25 @@ async def send_bug_report_reminder(
                     "error": str(e)
                 })
 
-        # Send reminder to CC recipients
+        # Send to CC recipients
         for cc_entry in bug_report.cc_recipients:
             cc_recipient = cc_entry.cc_recipient
             if cc_recipient and cc_recipient.phone:
+                # CC recipients message - moved inside the loop
+                cc_caption = (
+                    f"Hi {cc_recipient.name},\n\n"
+                    f"A reminder has been sent for a bug report you're following. "
+                    f"{current_user.name} has requested an update from {bug_report.recipient.name}. "
+                    f"You can track the progress here: {bug_link}\n\n"
+                    f"*Bug Report Details:*\n"
+                    f"━━━━━━━━━━━━━━━━\n\n"
+                    f"*ID:*\n{bug_report.id}\n\n"
+                    f"*Description:*\n{bug_report.description}\n\n"
+                    f"*Severity:*\n{bug_report.severity.value}\n\n"
+                    f"*Status:*\n{bug_report.status.value}\n\n"
+                    f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
+                    f"*Originally Assigned:*\n{formatted_date}"
+                )
                 try:
                     send_media_with_caption(
                         phone_number=cc_recipient.phone,
