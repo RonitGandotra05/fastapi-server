@@ -159,6 +159,7 @@ async def upload_screenshot(
                 caption = (
                     f"*New Bug Report*\n"
                     f"━━━━━━━━━━━━━━━━\n\n"
+                    f"Hello {recipient_user.name},\n\n"
                     f"You have been assigned a new bug report by {current_user.name}.\n\n"
                     f"*Description:*\n{description}\n\n"
                     f"*Severity:*\n{severity_level.value}\n\n"
@@ -180,7 +181,7 @@ async def upload_screenshot(
                 cc_caption = (
                     f"*CC: New Bug Report*\n"
                     f"━━━━━━━━━━━━━━━\n\n"
-                    f"Hey {cc_user.name},\n\n"
+                    f"Hello {cc_user.name},\n\n"
                     f"You have been CC'd on a new bug report.\n\n"
                     f"*Assigned To:*\n{recipient_user.name}\n\n"
                     f"*Created By:*\n{current_user.name}\n\n"
@@ -361,6 +362,7 @@ async def toggle_bug_report_status(
         base_caption = (
             f"*Bug {bug_report.status.value.title()}*\n"
             f"━━━━━━━━━━━━━━━━━━━\n\n"
+            f"Hello {bug_report.recipient.name},\n\n"
             f"*Bug Report ID:*\n{bug_report.id}\n\n"
             f"*Description:*\n{bug_report.description}\n\n"
             f"*Severity:*\n{bug_report.severity.value}\n\n"
@@ -390,8 +392,10 @@ async def toggle_bug_report_status(
             cc_recipient = cc_entry.cc_recipient
             if cc_recipient and cc_recipient.phone:
                 cc_caption = (
-                    f"Hello {cc_recipient.name}, \n"
-                    f"A bug report you were CC'd on has been resolved.\n\n"
+                    f"*CC: Update Requested*\n"
+                    f"━━━━━━━━━━━━━━━━\n\n"
+                    f"Hello {cc_recipient.name},\n\n"
+                    f"A reminder has been sent for a bug report you're following.\n\n"
                     + base_caption
                 )
                 try:
@@ -494,6 +498,7 @@ async def assign_bug_report(
         caption = (
             f"*Bug Reassigned*\n"
             f"━━━━━━━━━━━━━━━━\n\n"
+            f"Hello {recipient_user.name},\n\n"
             f"You have been assigned a bug report by {current_user.name}.\n\n"
             f"*Bug Report ID:*\n{bug_report.id}\n\n"
             f"*Description:*\n{bug_report.description}"
@@ -548,8 +553,8 @@ async def send_bug_report_reminder(
         caption = (
             f"*Reminder: Update Required*\n"
             f"━━━━━━━━━━━━━━━━\n\n"
-            f"Hi {bug_report.recipient.name},\n\n"
-            f"This is a reminder about a bug report assigned to you on {formatted_date}. \n\n"
+            f"Hello {bug_report.recipient.name},\n\n"
+            f"This is a reminder about a bug report assigned to you on {formatted_date}.\n\n"
             f"Could you please provide an update on its status on the following link: {bug_link}\n\n"
             f"*Bug Report Details*\n"
             f"━━━━━━━━━━━━━━━━\n\n"
@@ -586,8 +591,8 @@ async def send_bug_report_reminder(
                 cc_caption = (
                     f"*CC: Update Requested*\n"
                     f"━━━━━━━━━━━━━━━━\n\n"
-                    f"Hi {cc_recipient.name},\n\n"
-                    f"A reminder has been sent for a bug report you're following. \n\n"
+                    f"Hello {cc_recipient.name},\n\n"
+                    f"A reminder has been sent for a bug report you're following.\n\n"
                     f"{current_user.name} has requested an update from {bug_report.recipient.name}. "
                     f"You can track the progress here: {bug_link}\n\n"
                     f"*Bug Report Details*\n"
@@ -670,22 +675,31 @@ async def add_bug_report_comment(
         base_message = (
             f"*Update on Bug Report from {current_user.name}*\n"
             f"━━━━━━━━━━━━━━━━\n\n"
-            f"*Bug ID:*\n{bug_id}\n\n"
-            f"*Update Message:*\n{comment_data.comment}\n\n"
-            f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
         )
         
         # Send notifications
         try:
             # Notify creator if they're not the commenter
             if bug_report.creator and bug_report.creator.phone and bug_report.creator.name != current_user.name:
-                creator_message = f"Hi {bug_report.creator.name},\n\n" + base_message
+                creator_message = (
+                    base_message +
+                    f"Hello {bug_report.creator.name},\n\n"
+                    f"*Bug ID:*\n{bug_id}\n\n"
+                    f"*Update Message:*\n{comment_data.comment}\n\n"
+                    f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
+                )
                 send_text_message(bug_report.creator.phone, creator_message)
                 print(f"Notification sent to creator: {bug_report.creator.name}")
 
             # Notify recipient if they're not the commenter
             if bug_report.recipient and bug_report.recipient.phone and bug_report.recipient.name != current_user.name:
-                recipient_message = f"Hi {bug_report.recipient.name},\n\n" + base_message
+                recipient_message = (
+                    base_message +
+                    f"Hello {bug_report.recipient.name},\n\n"
+                    f"*Bug ID:*\n{bug_id}\n\n"
+                    f"*Update Message:*\n{comment_data.comment}\n\n"
+                    f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
+                )
                 send_text_message(bug_report.recipient.phone, recipient_message)
                 print(f"Notification sent to recipient: {bug_report.recipient.name}")
 
@@ -694,7 +708,13 @@ async def add_bug_report_comment(
                 if (cc_entry.cc_recipient and 
                     cc_entry.cc_recipient.phone and 
                     cc_entry.cc_recipient.name != current_user.name):
-                    cc_message = f"Hi {cc_entry.cc_recipient.name},\n\n" + base_message
+                    cc_message = (
+                        base_message +
+                        f"Hello {cc_entry.cc_recipient.name},\n\n"
+                        f"*Bug ID:*\n{bug_id}\n\n"
+                        f"*Update Message:*\n{comment_data.comment}\n\n"
+                        f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
+                    )
                     send_text_message(cc_entry.cc_recipient.phone, cc_message)
                     print(f"Notification sent to CC recipient: {cc_entry.cc_recipient.name}")
 
