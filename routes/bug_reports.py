@@ -157,6 +157,8 @@ async def upload_screenshot(
             # Notify main recipient
             if recipient_user and recipient_user.phone:
                 caption = (
+                    f"*New Bug Report*\n"
+                    f"━━━━━━━━━━━━━━━━\n\n"
                     f"You have been assigned a new bug report by {current_user.name}.\n\n"
                     f"*Description:*\n{description}\n\n"
                     f"*Severity:*\n{severity_level.value}\n\n"
@@ -176,6 +178,8 @@ async def upload_screenshot(
             # Notify CC recipients
             if cc_recipient_users and recipient_user:
                 cc_caption = (
+                    f"*CC: New Bug Report*\n"
+                    f"━━━━━━━━━━━━━━━\n\n"
                     f"Hey {cc_user.name},\n\n"
                     f"You have been CC'd on a new bug report.\n\n"
                     f"*Assigned To:*\n{recipient_user.name}\n\n"
@@ -355,8 +359,8 @@ async def toggle_bug_report_status(
     # If status changed to resolved, notify the creator and CC recipients
     if previous_status != BugStatus.resolved and bug_report.status == BugStatus.resolved:
         base_caption = (
-            f"*Bug Report Status Update*\n"
-            f"━━━━━━━━━━━━━━━━\n\n"
+            f"*Bug {bug_report.status.value.title()}*\n"
+            f"━━━━━━━━━━━━━━━━━━━\n\n"
             f"*Bug Report ID:*\n{bug_report.id}\n\n"
             f"*Description:*\n{bug_report.description}\n\n"
             f"*Severity:*\n{bug_report.severity.value}\n\n"
@@ -488,8 +492,8 @@ async def assign_bug_report(
 
     try:
         caption = (
-            f"*New Bug Report Assignment*\n"
-            f"━━━━━━━━━━━���━━━━\n\n"
+            f"*Bug Reassigned*\n"
+            f"━━━━━━━━━━━━━━━━\n\n"
             f"You have been assigned a bug report by {current_user.name}.\n\n"
             f"*Bug Report ID:*\n{bug_report.id}\n\n"
             f"*Description:*\n{bug_report.description}"
@@ -542,10 +546,12 @@ async def send_bug_report_reminder(
 
         # Main recipient message
         caption = (
+            f"*Reminder: Update Required*\n"
+            f"━━━━━━━━━━━━━━━━\n\n"
             f"Hi {bug_report.recipient.name},\n\n"
-            f"This is a reminder about a bug report assigned to you on {formatted_date}. "
+            f"This is a reminder about a bug report assigned to you on {formatted_date}. \n\n"
             f"Could you please provide an update on its status on the following link: {bug_link}\n\n"
-            f"*Bug Report Details:*\n"
+            f"*Bug Report Details*\n"
             f"━━━━━━━━━━━━━━━━\n\n"
             f"*ID:*\n{bug_report.id}\n\n"
             f"*Description:*\n{bug_report.description}\n\n"
@@ -578,11 +584,13 @@ async def send_bug_report_reminder(
             if cc_recipient and cc_recipient.phone:
                 # CC recipients message - moved inside the loop
                 cc_caption = (
+                    f"*CC: Update Requested*\n"
+                    f"━━━━━━━━━━━━━━━━\n\n"
                     f"Hi {cc_recipient.name},\n\n"
-                    f"A reminder has been sent for a bug report you're following. "
+                    f"A reminder has been sent for a bug report you're following. \n\n"
                     f"{current_user.name} has requested an update from {bug_report.recipient.name}. "
                     f"You can track the progress here: {bug_link}\n\n"
-                    f"*Bug Report Details:*\n"
+                    f"*Bug Report Details*\n"
                     f"━━━━━━━━━━━━━━━━\n\n"
                     f"*ID:*\n{bug_report.id}\n\n"
                     f"*Description:*\n{bug_report.description}\n\n"
@@ -637,14 +645,19 @@ async def add_bug_report_comment(
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     # Check if bug report exists
-    bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
+    bug_report = db.query(BugReport).options(
+        joinedload(BugReport.creator),
+        joinedload(BugReport.recipient),
+        joinedload(BugReport.cc_recipients).joinedload(BugReportCC.cc_recipient)
+    ).filter(BugReport.id == bug_id).first()
+    
     if not bug_report:
         raise HTTPException(status_code=404, detail="Bug report not found")
 
     # Create new comment
     new_comment = BugReportComment(
         bug_report_id=bug_id,
-        user_name=current_user.name,  # Store name directly
+        user_name=current_user.name,
         comment=comment_data.comment
     )
     
@@ -653,30 +666,37 @@ async def add_bug_report_comment(
         db.commit()
         db.refresh(new_comment)
         
-        # Notify other users about the new comment
+        # Prepare the base message for notifications
+        base_message = (
+            f"*Update on Bug Report from {current_user.name}*\n"
+            f"━━━━━━━━━━━━━━━━\n\n"
+            f"*Bug ID:*\n{bug_id}\n\n"
+            f"*Update Message:*\n{comment_data.comment}\n\n"
+            f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
+        )
+        
+        # Send notifications
         try:
-            # Notify the bug report creator if they're not the commenter
-            if bug_report.creator and bug_report.creator.name != current_user.name:
-                notification = (
-                    f"Hi {bug_report.creator.name},\n\n"
-                    f"*New update on your bug report (ID: {bug_id})*\n\n"
-                    f"*Updated by:*\n{current_user.name}\n\n"
-                    f"*Update:*\n{comment_data.comment}\n\n"
-                    f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
-                )
-                send_text_message(bug_report.creator.phone, notification)
+            # Notify creator if they're not the commenter
+            if bug_report.creator and bug_report.creator.phone and bug_report.creator.name != current_user.name:
+                creator_message = f"Hi {bug_report.creator.name},\n\n" + base_message
+                send_text_message(bug_report.creator.phone, creator_message)
+                print(f"Notification sent to creator: {bug_report.creator.name}")
+
+            # Notify recipient if they're not the commenter
+            if bug_report.recipient and bug_report.recipient.phone and bug_report.recipient.name != current_user.name:
+                recipient_message = f"Hi {bug_report.recipient.name},\n\n" + base_message
+                send_text_message(bug_report.recipient.phone, recipient_message)
+                print(f"Notification sent to recipient: {bug_report.recipient.name}")
 
             # Notify CC recipients
             for cc_entry in bug_report.cc_recipients:
-                if cc_entry.cc_recipient.name != current_user.name:
-                    cc_notification = (
-                        f"Hi {cc_entry.cc_recipient.name},\n\n"
-                        f"*New update on a bug report you're CC'd on (ID: {bug_id})*\n\n"
-                        f"*Updated by:*\n{current_user.name}\n\n"
-                        f"*Update:*\n{comment_data.comment}\n\n"
-                        f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
-                    )
-                    send_text_message(cc_entry.cc_recipient.phone, cc_notification)
+                if (cc_entry.cc_recipient and 
+                    cc_entry.cc_recipient.phone and 
+                    cc_entry.cc_recipient.name != current_user.name):
+                    cc_message = f"Hi {cc_entry.cc_recipient.name},\n\n" + base_message
+                    send_text_message(cc_entry.cc_recipient.phone, cc_message)
+                    print(f"Notification sent to CC recipient: {cc_entry.cc_recipient.name}")
 
         except Exception as e:
             print(f"Error sending notifications: {e}")
