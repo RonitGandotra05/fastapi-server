@@ -359,6 +359,7 @@ async def toggle_bug_report_status(
 
     # If status changed to resolved, notify the creator and CC recipients
     if previous_status != BugStatus.resolved and bug_report.status == BugStatus.resolved:
+        # Base message for main recipient and creator
         base_caption = (
             f"*Bug {bug_report.status.value.title()}*\n"
             f"━━━━━━━━━━━━━━━━━━━\n\n"
@@ -371,10 +372,20 @@ async def toggle_bug_report_status(
             f"*Updated by:*\n{current_user.name} ({current_user.email})"
         )
 
-        # Notify creator
+        # Notify creator with their own greeting
         creator = bug_report.creator
         if creator and creator.phone:
-            creator_caption = f"Hello {creator.name}, " + base_caption
+            creator_caption = (
+                f"*Bug {bug_report.status.value.title()}*\n"
+                f"━━━━━━━━━━━━━━━━━━━\n\n"
+                f"Hello {creator.name},\n\n"
+                f"*Bug Report ID:*\n{bug_report.id}\n\n"
+                f"*Description:*\n{bug_report.description}\n\n"
+                f"*Severity:*\n{bug_report.severity.value}\n\n"
+                f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
+                f"*Status:*\n{bug_report.status.value}\n\n"
+                f"*Updated by:*\n{current_user.name} ({current_user.email})"
+            )
             try:
                 send_media_with_caption(
                     creator.phone,
@@ -387,16 +398,20 @@ async def toggle_bug_report_status(
             except Exception as e:
                 print(f"Failed to send message to creator {creator.name} ({creator.phone}): {e}")
 
-        # Notify CC recipients
+        # Notify CC recipients with their own greeting
         for cc_entry in bug_report.cc_recipients:
             cc_recipient = cc_entry.cc_recipient
             if cc_recipient and cc_recipient.phone:
                 cc_caption = (
-                    f"*CC: Update Requested*\n"
+                    f"*CC: Bug {bug_report.status.value.title()}*\n"
                     f"━━━━━━━━━━━━━━━━\n\n"
                     f"Hello {cc_recipient.name},\n\n"
-                    f"A reminder has been sent for a bug report you're following.\n\n"
-                    + base_caption
+                    f"*Bug Report ID:*\n{bug_report.id}\n\n"
+                    f"*Description:*\n{bug_report.description}\n\n"
+                    f"*Severity:*\n{bug_report.severity.value}\n\n"
+                    f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
+                    f"*Status:*\n{bug_report.status.value}\n\n"
+                    f"*Updated by:*\n{current_user.name} ({current_user.email})"
                 )
                 try:
                     send_media_with_caption(
@@ -415,7 +430,17 @@ async def toggle_bug_report_status(
         if (recipient and recipient.phone and 
             recipient.id != creator.id and 
             recipient.id != current_user.id):
-            recipient_caption = f"Hello {recipient.name}, " + base_caption
+            recipient_caption = (
+                f"*Bug {bug_report.status.value.title()}*\n"
+                f"━━━━━━━━━━━━━━━━━━━\n\n"
+                f"Hello {recipient.name},\n\n"
+                f"*Bug Report ID:*\n{bug_report.id}\n\n"
+                f"*Description:*\n{bug_report.description}\n\n"
+                f"*Severity:*\n{bug_report.severity.value}\n\n"
+                f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
+                f"*Status:*\n{bug_report.status.value}\n\n"
+                f"*Updated by:*\n{current_user.name} ({current_user.email})"
+            )
             try:
                 send_media_with_caption(
                     recipient.phone,
