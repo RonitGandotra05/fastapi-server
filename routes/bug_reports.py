@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session, joinedload
 from database import get_db
-from models import User, BugReport, BugStatus, SeverityLevel, Project, BugReportCC  # Added BugReportCC here
+from models import User, BugReport, BugStatus, SeverityLevel, Project, BugReportCC, BugReportComment  # Added BugReportCC and BugReportComment here
 from auth import RoleChecker, get_user_by_email
-from schemas import BugReportResponse
+from schemas import BugReportResponse, BugReportCommentCreate, BugReportCommentResponse
 from typing import List, Optional
 from utils import send_media_with_caption, send_text_message
 import boto3
@@ -626,3 +626,87 @@ async def send_bug_report_reminder(
         import traceback
         print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+# Endpoint to add a comment
+@router.post("/bug_reports/{bug_id}/comments", response_model=BugReportCommentResponse)
+async def add_bug_report_comment(
+    bug_id: int,
+    comment_data: BugReportCommentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
+):
+    # Check if bug report exists
+    bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
+    if not bug_report:
+        raise HTTPException(status_code=404, detail="Bug report not found")
+
+    # Create new comment
+    new_comment = BugReportComment(
+        bug_report_id=bug_id,
+        user_name=current_user.name,  # Store name directly
+        comment=comment_data.comment
+    )
+    
+    try:
+        db.add(new_comment)
+        db.commit()
+        db.refresh(new_comment)
+        
+        # Notify other users about the new comment
+        try:
+            # Notify the bug report creator if they're not the commenter
+            if bug_report.creator and bug_report.creator.name != current_user.name:
+                notification = (
+                    f"Hi {bug_report.creator.name},\n\n"
+                    f"*New update on your bug report (ID: {bug_id})*\n\n"
+                    f"*Updated by:*\n{current_user.name}\n\n"
+                    f"*Update:*\n{comment_data.comment}\n\n"
+                    f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
+                )
+                send_text_message(bug_report.creator.phone, notification)
+
+            # Notify CC recipients
+            for cc_entry in bug_report.cc_recipients:
+                if cc_entry.cc_recipient.name != current_user.name:
+                    cc_notification = (
+                        f"Hi {cc_entry.cc_recipient.name},\n\n"
+                        f"*New update on a bug report you're CC'd on (ID: {bug_id})*\n\n"
+                        f"*Updated by:*\n{current_user.name}\n\n"
+                        f"*Update:*\n{comment_data.comment}\n\n"
+                        f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
+                    )
+                    send_text_message(cc_entry.cc_recipient.phone, cc_notification)
+
+        except Exception as e:
+            print(f"Error sending notifications: {e}")
+            # Continue even if notifications fail
+            
+        return BugReportCommentResponse.from_comment(new_comment)
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to add comment: {str(e)}")
+
+# Endpoint to view comments
+@router.get("/bug_reports/{bug_id}/comments", response_model=List[BugReportCommentResponse])
+async def get_bug_report_comments(
+    bug_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
+):
+    # First check if the bug report exists
+    bug_report = db.query(BugReport).filter(BugReport.id == bug_id).first()
+    if not bug_report:
+        raise HTTPException(status_code=404, detail="Bug report not found")
+
+    # Check if user has permission to view this bug report
+    is_cc_recipient = any(cc.cc_recipient_id == current_user.id for cc in bug_report.cc_recipients)
+    if not current_user.is_admin and current_user.id not in [bug_report.creator_id, bug_report.recipient_id] and not is_cc_recipient:
+        raise HTTPException(status_code=403, detail="Access forbidden")
+
+    # Get all comments for this bug report, ordered by creation time (newest first)
+    comments = db.query(BugReportComment).filter(
+        BugReportComment.bug_report_id == bug_id
+    ).order_by(BugReportComment.created_at.desc()).all()
+
+    return [BugReportCommentResponse.from_comment(comment) for comment in comments]
