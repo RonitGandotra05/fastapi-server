@@ -60,6 +60,7 @@ class BugReport(Base):
     project = relationship('Project', back_populates='bug_reports')
     tab_url = Column(String, nullable=True)
     cc_recipients = relationship("BugReportCC", back_populates="bug_report", cascade="all, delete-orphan")
+    comments = relationship("BugReportComment", back_populates="bug_report", cascade="all, delete-orphan")
 
 class Project(Base):
     __tablename__ = 'projects'
@@ -71,3 +72,15 @@ class Project(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     bug_reports = relationship('BugReport', back_populates='project')
+
+class BugReportComment(Base):
+    __tablename__ = 'bug_report_comments'
+
+    id = Column(Integer, primary_key=True, index=True)
+    bug_report_id = Column(Integer, ForeignKey('bug_reports.id', ondelete='CASCADE'))
+    user_name = Column(String, nullable=False)
+    comment = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Only keep the bug_report relationship
+    bug_report = relationship("BugReport", back_populates="comments")

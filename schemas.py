@@ -81,3 +81,26 @@ class ProjectResponse(ProjectBase):
 
     class Config:
         from_attributes = True
+
+class BugReportCommentCreate(BaseModel):
+    comment: str
+
+class BugReportCommentResponse(BaseModel):
+    id: int
+    bug_report_id: int
+    user_name: str
+    comment: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+    @classmethod
+    def from_comment(cls, comment):
+        return cls(
+            id=comment.id,
+            bug_report_id=comment.bug_report_id,
+            user_name=comment.user_name,
+            comment=comment.comment,
+            created_at=comment.created_at
+        )
