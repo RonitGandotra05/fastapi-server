@@ -536,6 +536,10 @@ async def send_bug_report_reminder(
         notifications_sent = []
         failed_notifications = []
 
+        # Define the base URL for the bug report link
+        base_url = "https://exquisite-tarsier-27371d.netlify.app/homeV2/"
+        bug_link = f"{base_url}{bug_id}"
+
         # Send reminder to main recipient
         if bug_report.recipient and bug_report.recipient.phone:
             try:
@@ -549,7 +553,8 @@ async def send_bug_report_reminder(
                     f"*Severity:*\n{bug_report.severity.value}\n\n"
                     f"*Status:*\n{bug_report.status.value}\n\n"
                     f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
-                    f"*Reminder sent by:*\n{current_user.name}"
+                    f"*Reminder sent by:*\n{current_user.name}\n\n"
+                    f"*View Bug Report:*\n{bug_link}"
                 )
 
                 send_media_with_caption(
@@ -582,7 +587,8 @@ async def send_bug_report_reminder(
                         f"*Severity:*\n{bug_report.severity.value}\n\n"
                         f"*Status:*\n{bug_report.status.value}\n\n"
                         f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
-                        f"*Originally Assigned:*\n{formatted_date}"
+                        f"*Originally Assigned:*\n{formatted_date}\n\n"
+                        f"*View Bug Report:*\n{bug_link}"
                     )
 
                     send_media_with_caption(
