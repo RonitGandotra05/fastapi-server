@@ -540,23 +540,40 @@ async def send_bug_report_reminder(
         base_url = "https://exquisite-tarsier-27371d.netlify.app/homeV2/"
         bug_link = f"{base_url}{bug_id}"
 
+        # Main recipient message
+        caption = (
+            f"Hi {bug_report.recipient.name},\n\n"
+            f"This is a reminder about a bug report assigned to you on {formatted_date}. "
+            f"Could you please provide an update on its status on the following link: {bug_link}\n\n"
+            f"*Bug Report Details:*\n"
+            f"━━━━━━━━━━━━━━━━\n\n"
+            f"*ID:*\n{bug_report.id}\n\n"
+            f"*Description:*\n{bug_report.description}\n\n"
+            f"*Severity:*\n{bug_report.severity.value}\n\n"
+            f"*Status:*\n{bug_report.status.value}\n\n"
+            f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
+            f"*Reminder from:*\n{current_user.name}"
+        )
+
+        # CC recipients message
+        cc_caption = (
+            f"Hi {cc_recipient.name},\n\n"
+            f"A reminder has been sent for a bug report you were CC'd on. "
+            f"{current_user.name} has requested an update from {bug_report.recipient.name}. "
+            f"You can track the progress here: {bug_link}\n\n"
+            f"*Bug Report Details:*\n"
+            f"━━━━━━━━━━━━━━━━\n\n"
+            f"*ID:*\n{bug_report.id}\n\n"
+            f"*Description:*\n{bug_report.description}\n\n"
+            f"*Severity:*\n{bug_report.severity.value}\n\n"
+            f"*Status:*\n{bug_report.status.value}\n\n"
+            f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
+            f"*Originally Assigned:*\n{formatted_date}"
+        )
+
         # Send reminder to main recipient
         if bug_report.recipient and bug_report.recipient.phone:
             try:
-                caption = (
-                    f"Hi {bug_report.recipient.name},\n\n"
-                    f"You have a pending bug report which was assigned on {formatted_date}.\n\n"
-                    f"*Bug Report Details:*\n"
-                    f"━━━━━━━━━━━━━━━━\n\n"
-                    f"*ID:*\n{bug_report.id}\n\n"
-                    f"*Description:*\n{bug_report.description}\n\n"
-                    f"*Severity:*\n{bug_report.severity.value}\n\n"
-                    f"*Status:*\n{bug_report.status.value}\n\n"
-                    f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
-                    f"*Reminder sent by:*\n{current_user.name}\n\n"
-                    f"*View Bug Report:*\n{bug_link}"
-                )
-
                 send_media_with_caption(
                     phone_number=bug_report.recipient.phone,
                     media_link=bug_report.image_url,
@@ -576,21 +593,6 @@ async def send_bug_report_reminder(
             cc_recipient = cc_entry.cc_recipient
             if cc_recipient and cc_recipient.phone:
                 try:
-                    cc_caption = (
-                        f"Hi {cc_recipient.name},\n\n"
-                        f"{current_user.name} has sent a reminder to {bug_report.recipient.name} "
-                        f"for a bug report you were CC'd on.\n\n"
-                        f"*Bug Report Details:*\n"
-                        f"━━━━━━━━━━━━━━━━\n\n"
-                        f"*ID:*\n{bug_report.id}\n\n"
-                        f"*Description:*\n{bug_report.description}\n\n"
-                        f"*Severity:*\n{bug_report.severity.value}\n\n"
-                        f"*Status:*\n{bug_report.status.value}\n\n"
-                        f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
-                        f"*Originally Assigned:*\n{formatted_date}\n\n"
-                        f"*View Bug Report:*\n{bug_link}"
-                    )
-
                     send_media_with_caption(
                         phone_number=cc_recipient.phone,
                         media_link=bug_report.image_url,
