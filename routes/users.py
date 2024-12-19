@@ -83,12 +83,16 @@ def register_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['admin']))
 ):
+    # Trim whitespace from name before proceeding
+    name = name.strip()
+    
     existing_user = get_user_by_email(db, email=email)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
+    
     user = User(
-        name=name,
-        email=email,
+        name=name,  # Using trimmed name
+        email=email,  # Keep email as is
         phone=phone,
         password_hash=get_password_hash(password)
     )
@@ -98,7 +102,14 @@ def register_user(
     
     # Send credentials via WhatsApp
     try:
-        message = f"Hello {name},\n\nYour account has been created.\nEmail: {email}\nPassword: {password}\n\nPlease log in to the Bug Tracker Extension to report bugs. \n\n Download: https://chromewebstore.google.com/detail/bugs-report-rz/egjnfjgaagjiigmdedeobeineeopnbff"
+        message = (
+            f"Hello {name},\n\n"
+            f"Your account has been created.\n"
+            f"Email: {email}\n"
+            f"Password: {password}\n\n"
+            f"Please log in to the Bug Tracker Extension to report bugs. \n\n"
+            f"Download: https://chromewebstore.google.com/detail/bugs-report-rz/egjnfjgaagjiigmdedeobeineeopnbff"
+        )
         send_text_message(phone, message)
     except Exception as e:
         print(f"Error sending message to user: {e}")
