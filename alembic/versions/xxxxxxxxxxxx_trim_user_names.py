@@ -1,7 +1,7 @@
 """trim user names
 
 Revision ID: 2024_01_trim_users
-Revises: e603b56c19f0
+Revises: 508a9ee4a517
 Create Date: 2024-01-20 10:00:00.000000
 
 """
@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 # revision identifiers, used by Alembic.
 revision = '2024_01_trim_users'
-down_revision = 'e603b56c19f0'  # This is the ID of your last migration
+down_revision = '508a9ee4a517'  # Updated to use the existing head
 branch_labels = None
 depends_on = None
 
