@@ -1,7 +1,7 @@
 """trim user names
 
-Revision ID: xxxxxxxxxxxx
-Revises: previous_revision_id
+Revision ID: 2024_01_trim_users
+Revises: e603b56c19f0
 Create Date: 2024-01-20 10:00:00.000000
 
 """
@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 # revision identifiers, used by Alembic.
-revision = 'xxxxxxxxxxxx'
-down_revision = 'previous_revision_id'  # Replace with your last migration ID
+revision = '2024_01_trim_users'
+down_revision = 'e603b56c19f0'  # This is the ID of your last migration
 branch_labels = None
 depends_on = None
 
