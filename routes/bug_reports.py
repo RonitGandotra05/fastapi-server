@@ -372,6 +372,10 @@ async def toggle_bug_report_status(
             f"*Updated by:*\n{current_user.name} ({current_user.email})"
         )
 
+        # Base URL for bug reports
+        base_url = "https://bugszap.netlify.app/homeV2/"
+        bug_link = f"{base_url}{bug_id}"
+
         # Notify creator with their own greeting
         creator = bug_report.creator
         if creator and creator.phone:
@@ -384,7 +388,8 @@ async def toggle_bug_report_status(
                 f"*Severity:*\n{bug_report.severity.value}\n\n"
                 f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
                 f"*Status:*\n{bug_report.status.value}\n\n"
-                f"*Updated by:*\n{current_user.name} ({current_user.email})"
+                f"*Updated by:*\n{current_user.name} ({current_user.email})\n\n"
+                f"*View Bug Report:*\n{bug_link}"
             )
             try:
                 send_media_with_caption(
@@ -411,7 +416,8 @@ async def toggle_bug_report_status(
                     f"*Severity:*\n{bug_report.severity.value}\n\n"
                     f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
                     f"*Status:*\n{bug_report.status.value}\n\n"
-                    f"*Updated by:*\n{current_user.name} ({current_user.email})"
+                    f"*Updated by:*\n{current_user.name} ({current_user.email})\n\n"
+                    f"*View Bug Report:*\n{bug_link}"
                 )
                 try:
                     send_media_with_caption(
@@ -439,7 +445,8 @@ async def toggle_bug_report_status(
                 f"*Severity:*\n{bug_report.severity.value}\n\n"
                 f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
                 f"*Status:*\n{bug_report.status.value}\n\n"
-                f"*Updated by:*\n{current_user.name} ({current_user.email})"
+                f"*Updated by:*\n{current_user.name} ({current_user.email})\n\n"
+                f"*View Bug Report:*\n{bug_link}"
             )
             try:
                 send_media_with_caption(
@@ -571,7 +578,7 @@ async def send_bug_report_reminder(
         failed_notifications = []
 
         # Define the base URL for the bug report link
-        base_url = "https://exquisite-tarsier-27371d.netlify.app/homeV2/"
+        base_url = "https://bugszap.netlify.app/homeV2/"
         bug_link = f"{base_url}{bug_id}"
 
         # Main recipient message
@@ -582,7 +589,7 @@ async def send_bug_report_reminder(
             f"This is a reminder about a bug report assigned to you on {formatted_date}.\n\n"
             f"Could you please provide an update on its status on the following link: {bug_link}\n\n"
             f"*Bug Report Details*\n"
-            f"━━━━━━━━━━━━━━━━\n\n"
+            f"━━━━━━━━━���━━━━━━\n\n"
             f"*ID:*\n{bug_report.id}\n\n"
             f"*Description:*\n{bug_report.description}\n\n"
             f"*Severity:*\n{bug_report.severity.value}\n\n"
@@ -702,45 +709,60 @@ async def add_bug_report_comment(
             f"━━━━━━━━━━━━━━━━\n\n"
         )
         
-        # Send notifications
+        # Keep track of who has been notified to avoid duplicates
+        notified_users = set()
+        
         try:
             # Notify creator if they're not the commenter
-            if bug_report.creator and bug_report.creator.phone and bug_report.creator.name != current_user.name:
+            if (bug_report.creator and 
+                bug_report.creator.phone and 
+                bug_report.creator.name != current_user.name and
+                bug_report.creator.id not in notified_users):
+                
                 creator_message = (
                     base_message +
                     f"Hello {bug_report.creator.name},\n\n"
                     f"*Bug ID:*\n{bug_id}\n\n"
                     f"*Update Message:*\n{comment_data.comment}\n\n"
-                    f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
+                    f"*View Bug Report:*\nhttps://bugszap.netlify.app/homeV2/{bug_id}"
                 )
                 send_text_message(bug_report.creator.phone, creator_message)
+                notified_users.add(bug_report.creator.id)
                 print(f"Notification sent to creator: {bug_report.creator.name}")
 
-            # Notify recipient if they're not the commenter
-            if bug_report.recipient and bug_report.recipient.phone and bug_report.recipient.name != current_user.name:
+            # Notify recipient if they're not the commenter and haven't been notified yet
+            if (bug_report.recipient and 
+                bug_report.recipient.phone and 
+                bug_report.recipient.name != current_user.name and
+                bug_report.recipient.id not in notified_users):
+                
                 recipient_message = (
                     base_message +
                     f"Hello {bug_report.recipient.name},\n\n"
                     f"*Bug ID:*\n{bug_id}\n\n"
                     f"*Update Message:*\n{comment_data.comment}\n\n"
-                    f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
+                    f"*View Bug Report:*\nhttps://bugszap.netlify.app/homeV2/{bug_id}"
                 )
                 send_text_message(bug_report.recipient.phone, recipient_message)
+                notified_users.add(bug_report.recipient.id)
                 print(f"Notification sent to recipient: {bug_report.recipient.name}")
 
-            # Notify CC recipients
+            # Notify CC recipients if they haven't been notified yet
             for cc_entry in bug_report.cc_recipients:
                 if (cc_entry.cc_recipient and 
                     cc_entry.cc_recipient.phone and 
-                    cc_entry.cc_recipient.name != current_user.name):
+                    cc_entry.cc_recipient.name != current_user.name and
+                    cc_entry.cc_recipient.id not in notified_users):
+                    
                     cc_message = (
                         base_message +
                         f"Hello {cc_entry.cc_recipient.name},\n\n"
                         f"*Bug ID:*\n{bug_id}\n\n"
                         f"*Update Message:*\n{comment_data.comment}\n\n"
-                        f"*View Bug Report:*\nhttps://exquisite-tarsier-27371d.netlify.app/homeV2/{bug_id}"
+                        f"*View Bug Report:*\nhttps://bugszap.netlify.app/homeV2/{bug_id}"
                     )
                     send_text_message(cc_entry.cc_recipient.phone, cc_message)
+                    notified_users.add(cc_entry.cc_recipient.id)
                     print(f"Notification sent to CC recipient: {cc_entry.cc_recipient.name}")
 
         except Exception as e:
