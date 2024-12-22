@@ -10,6 +10,9 @@ import boto3
 import uuid
 import os
 from datetime import datetime
+import aiohttp
+from fastapi.responses import StreamingResponse
+import io
 router = APIRouter()
 
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
@@ -589,7 +592,7 @@ async def send_bug_report_reminder(
             f"This is a reminder about a bug report assigned to you on {formatted_date}.\n\n"
             f"Could you please provide an update on its status on the following link: {bug_link}\n\n"
             f"*Bug Report Details*\n"
-            f"━━━━━━━━━���━━━━━━\n\n"
+            f"━━━━━━━━━━━━━━━━\n\n"
             f"*ID:*\n{bug_report.id}\n\n"
             f"*Description:*\n{bug_report.description}\n\n"
             f"*Severity:*\n{bug_report.severity.value}\n\n"
@@ -798,3 +801,20 @@ async def get_bug_report_comments(
     ).order_by(BugReportComment.created_at.desc()).all()
 
     return [BugReportCommentResponse.from_comment(comment) for comment in comments]
+
+@router.get("/image/{image_name}")
+async def get_image(image_name: str):
+    try:
+        url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{image_name}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    content = await response.read()
+                    return StreamingResponse(
+                        io.BytesIO(content),
+                        media_type=response.headers.get('Content-Type', 'image/png')
+                    )
+                return {"error": "Image not found"}, 404
+    except Exception as e:
+        print(f"Error fetching image: {e}")
+        return {"error": str(e)}, 500
