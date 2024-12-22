@@ -1,7 +1,7 @@
 """update_timestamp_columns_to_utc
 
 Revision ID: xxxx
-Revises: e603b56c19f0
+Revises: [put the merge revision ID here]  # This should be the ID from step 2
 Create Date: 2023-12-22
 """
 from alembic import op
@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 # revision identifiers
 revision = 'xxxx'  # Alembic will generate this
-down_revision = 'e603b56c19f0'  # Your previous migration
+down_revision = '[put the merge revision ID here]'  # Use the merge revision ID
 branch_labels = None
 depends_on = None
 
