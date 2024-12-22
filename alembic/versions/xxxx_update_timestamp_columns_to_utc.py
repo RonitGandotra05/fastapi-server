@@ -1,7 +1,7 @@
 """update_timestamp_columns_to_utc
 
 Revision ID: xxxx
-Revises: e603b56c19f0  # Temporarily using the last known revision
+Revises: e603b56c19f0
 Create Date: 2023-12-22
 """
 from alembic import op
@@ -9,56 +9,43 @@ import sqlalchemy as sa
 from datetime import datetime, timezone
 
 # revision identifiers
-revision = 'xxxx'  # Alembic will generate this
-down_revision = 'e603b56c19f0'  # Using the last known revision
+revision = 'xxxx'
+down_revision = 'e603b56c19f0'
 branch_labels = None
 depends_on = None
 
 def upgrade():
-    # Update existing timestamps to UTC
-    op.execute("""
-        ALTER TABLE bug_reports 
-        ALTER COLUMN modified_date TYPE TIMESTAMP WITH TIME ZONE 
-        USING modified_date AT TIME ZONE 'UTC'
-    """)
+    # SQLite doesn't support ALTER COLUMN, so we need to:
+    # 1. Create new tables with the desired schema
+    # 2. Copy data
+    # 3. Drop old tables
+    # 4. Rename new tables
 
-    op.execute("""
-        ALTER TABLE bug_report_comments 
-        ALTER COLUMN created_at TYPE TIMESTAMP WITH TIME ZONE 
-        USING created_at AT TIME ZONE 'UTC'
-    """)
+    # For bug_reports
+    with op.batch_alter_table('bug_reports') as batch_op:
+        batch_op.alter_column('modified_date',
+            type_=sa.DateTime(timezone=True),
+            existing_type=sa.DateTime(),
+            existing_nullable=False)
 
-    # Set default to UTC timestamp for new records
-    op.alter_column('bug_reports', 'modified_date',
-        type_=sa.DateTime(timezone=True),
-        server_default=sa.text('NOW()'),
-        existing_nullable=True)
-
-    op.alter_column('bug_report_comments', 'created_at',
-        type_=sa.DateTime(timezone=True),
-        server_default=sa.text('NOW()'),
-        existing_nullable=True)
+    # For bug_report_comments
+    with op.batch_alter_table('bug_report_comments') as batch_op:
+        batch_op.alter_column('created_at',
+            type_=sa.DateTime(timezone=True),
+            existing_type=sa.DateTime(),
+            existing_nullable=False)
 
 def downgrade():
-    # Convert back to timestamp without timezone
-    op.execute("""
-        ALTER TABLE bug_reports 
-        ALTER COLUMN modified_date TYPE TIMESTAMP 
-        USING modified_date AT TIME ZONE 'UTC'
-    """)
+    # For bug_reports
+    with op.batch_alter_table('bug_reports') as batch_op:
+        batch_op.alter_column('modified_date',
+            type_=sa.DateTime(),
+            existing_type=sa.DateTime(timezone=True),
+            existing_nullable=False)
 
-    op.execute("""
-        ALTER TABLE bug_report_comments 
-        ALTER COLUMN created_at TYPE TIMESTAMP 
-        USING created_at AT TIME ZONE 'UTC'
-    """)
-
-    op.alter_column('bug_reports', 'modified_date',
-        type_=sa.DateTime(timezone=False),
-        server_default=sa.text('NOW()'),
-        existing_nullable=True)
-
-    op.alter_column('bug_report_comments', 'created_at',
-        type_=sa.DateTime(timezone=False),
-        server_default=sa.text('NOW()'),
-        existing_nullable=True) 
+    # For bug_report_comments
+    with op.batch_alter_table('bug_report_comments') as batch_op:
+        batch_op.alter_column('created_at',
+            type_=sa.DateTime(),
+            existing_type=sa.DateTime(timezone=True),
+            existing_nullable=False) 
