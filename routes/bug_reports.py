@@ -9,10 +9,11 @@ from utils import send_media_with_caption, send_text_message
 import boto3
 import uuid
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import aiohttp
 from fastapi.responses import StreamingResponse
 import io
+from pydantic import BaseModel
 router = APIRouter()
 
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
@@ -29,6 +30,74 @@ s3_client = boto3.client(
     aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
     region_name=AWS_REGION
 )
+
+# Update the response models to handle timezone properly
+class BugReportResponse(BaseModel):
+    id: int
+    image_url: str
+    description: str
+    recipient_id: Optional[int]
+    creator_id: Optional[int]
+    status: str
+    recipient: str
+    creator: str
+    media_type: str
+    modified_date: datetime
+    severity: str
+    project_id: Optional[int]
+    project_name: Optional[str]
+    tab_url: Optional[str]
+    cc_recipients: List[str]
+
+    class Config:
+        json_encoders = {
+            # Ensure all datetime fields are converted to UTC ISO format
+            datetime: lambda dt: dt.replace(tzinfo=timezone.utc).isoformat()
+        }
+
+    @classmethod
+    def from_bug_report(cls, bug_report):
+        return cls(
+            id=bug_report.id,
+            image_url=bug_report.image_url,
+            description=bug_report.description,
+            recipient_id=bug_report.recipient_id,
+            creator_id=bug_report.creator_id,
+            status=bug_report.status.value,
+            recipient=bug_report.recipient.name if bug_report.recipient else None,
+            creator=bug_report.creator.email if bug_report.creator else None,
+            media_type=bug_report.media_type,
+            # Add UTC timezone info to the timestamp
+            modified_date=bug_report.modified_date.replace(tzinfo=timezone.utc),
+            severity=bug_report.severity.value,
+            project_id=bug_report.project_id,
+            project_name=bug_report.project.name if bug_report.project else None,
+            tab_url=bug_report.tab_url,
+            cc_recipients=[cc.cc_recipient.name for cc in bug_report.cc_recipients] if bug_report.cc_recipients else []
+        )
+
+class BugReportCommentResponse(BaseModel):
+    id: int
+    bug_report_id: int
+    user_name: str
+    comment: str
+    created_at: datetime
+
+    class Config:
+        json_encoders = {
+            datetime: lambda dt: dt.replace(tzinfo=timezone.utc).isoformat()
+        }
+
+    @classmethod
+    def from_comment(cls, comment):
+        return cls(
+            id=comment.id,
+            bug_report_id=comment.bug_report_id,
+            user_name=comment.user_name,
+            comment=comment.comment,
+            # Add UTC timezone info to the timestamp
+            created_at=comment.created_at.replace(tzinfo=timezone.utc)
+        )
 
 @router.post("/upload")
 async def upload_screenshot(
@@ -131,7 +200,8 @@ async def upload_screenshot(
                 status=BugStatus.assigned,
                 media_type=media_type,
                 severity=severity_level,
-                tab_url=tab_url
+                tab_url=tab_url,
+                modified_date=datetime.now(timezone.utc),  # Use UTC time
             )
             
             db.add(bug_report)
@@ -698,7 +768,8 @@ async def add_bug_report_comment(
     new_comment = BugReportComment(
         bug_report_id=bug_id,
         user_name=current_user.name,
-        comment=comment_data.comment
+        comment=comment_data.comment,
+        created_at=datetime.now(timezone.utc)  # Use UTC time
     )
     
     try:
