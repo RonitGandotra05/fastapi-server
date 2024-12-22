@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, Enum as SQLAlchemyEnum, DateTime
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import relationship
 from enum import Enum
 from database import Base
@@ -54,7 +54,7 @@ class BugReport(Base):
     creator = relationship("User", foreign_keys=[creator_id], back_populates="created_bug_reports")
     status = Column(SQLAlchemyEnum(BugStatus), default=BugStatus.assigned, nullable=False)
     media_type = Column(String, nullable=False)
-    modified_date = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    modified_date = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     severity = Column(SQLAlchemyEnum(SeverityLevel), default=SeverityLevel.low, nullable=False)
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='SET NULL'), nullable=True)
     project = relationship('Project', back_populates='bug_reports')
@@ -80,7 +80,7 @@ class BugReportComment(Base):
     bug_report_id = Column(Integer, ForeignKey('bug_reports.id', ondelete='CASCADE'))
     user_name = Column(String, nullable=False)
     comment = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # Only keep the bug_report relationship
     bug_report = relationship("BugReport", back_populates="comments")
