@@ -28,9 +28,16 @@ flutter-app/
 flutter-app/*
 new_flutter_app/
 new_flutter_app/*
+bugzapp/
+bugzapp/*
+
 # In case Flutter app is in a subdirectory
 **/flutter-app/
 **/flutter-app/*
+**/bugzapp/
+**/bugzapp/*
+**/new_flutter_app/
+**/new_flutter_app/*
 
 # Specific Flutter-related files and directories
 .dart_tool/
