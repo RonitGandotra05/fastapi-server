@@ -26,7 +26,8 @@ bug_reports.db
 # Flutter app directory
 flutter-app/
 flutter-app/*
-
+new_flutter_app/
+new_flutter_app/*
 # In case Flutter app is in a subdirectory
 **/flutter-app/
 **/flutter-app/*
