@@ -1,7 +1,12 @@
 import os
 import requests
+from typing import Optional
 
-def send_media_with_caption(phone_number, media_link, caption, media_type, tab_url=None):
+async def send_media_with_caption(phone_number: str, media_url: Optional[str], caption: str):
+    if not media_url:
+        # Fall back to text message if no media URL
+        return await send_text_message(phone_number, caption)
+
     token = os.getenv('ULTRAMSG_API_TOKEN')
     if not token:
         print("Error: ULTRAMSG_API_TOKEN is not set.")
@@ -16,7 +21,7 @@ def send_media_with_caption(phone_number, media_link, caption, media_type, tab_u
         payload = {
             "token": token,
             "to": f"{phone_number}@c.us",
-            "image": media_link,
+            "image": media_url,
             "caption": caption
         }
     elif media_type == 'video':
@@ -24,13 +29,13 @@ def send_media_with_caption(phone_number, media_link, caption, media_type, tab_u
         payload = {
             "token": token,
             "to": f"{phone_number}@c.us",
-            "video": media_link,
+            "video": media_url,
             "caption": caption
         }
     elif media_type == 'video_link':
         # For large videos, send the link via a text message
         url = f"https://api.ultramsg.com/instance29265/messages/chat"
-        message_text = f"{caption}\nVideo Link: {media_link}"
+        message_text = f"{caption}\nVideo Link: {media_url}"
         payload = {
             "token": token,
             "to": f"{phone_number}@c.us",

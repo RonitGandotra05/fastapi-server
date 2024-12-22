@@ -29,20 +29,19 @@ Base.metadata.create_all(bind=engine)
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def create_admin_user(name, email, phone, password):
+def create_admin_user(name: str, email: str, phone: str, password: str):
     db = SessionLocal()
     try:
-        password_hash = get_password_hash(password)
-        admin_user = User(
+        admin = User(
             name=name,
             email=email,
             phone=phone,
-            password_hash=password_hash,
+            password_hash=get_password_hash(password),
             is_admin=True
         )
-        db.add(admin_user)
+        db.add(admin)
         db.commit()
-        db.refresh(admin_user)
+        db.refresh(admin)
         print("Admin user created successfully.")
     except Exception as e:
         db.rollback()

@@ -65,11 +65,13 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    configuration = config.get_section(config.config_ini_section)
+    configuration["sqlalchemy.url"] = get_url()
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section),
-        url=get_url(),  
-        prefix='sqlalchemy.',
+        configuration,
+        prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args={"detect_types": 3}  # Enable datetime support
     )
 
     with connectable.connect() as connection:

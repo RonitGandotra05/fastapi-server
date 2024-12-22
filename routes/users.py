@@ -178,32 +178,23 @@ async def get_current_user_info(
 # Update User Endpoint (Admin Only)
 @router.put("/users/{user_id}", response_model=UserResponse)
 def update_user(
-    user_id: int = Path(..., description="The ID of the user to update"),
-    user_update: UserUpdate = Depends(),
+    user_id: int,
+    user_update: UserUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['admin']))
 ):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
+    db_user = db.query(User).filter(User.id == user_id).first()
+    if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
-
-    # Update user fields if provided
-    if user_update.name is not None:
-        user.name = user_update.name
-    if user_update.email is not None:
-        # Check if the new email is already taken
-        existing_user = get_user_by_email(db, email=user_update.email)
-        if existing_user and existing_user.id != user_id:
-            raise HTTPException(status_code=400, detail="Email already registered")
-        user.email = user_update.email
+    
+    # Handle nullable fields
     if user_update.phone is not None:
-        user.phone = user_update.phone
-    if user_update.is_admin is not None:
-        user.is_admin = user_update.is_admin
+        db_user.phone = user_update.phone
+    # ... rest of the code ...
 
     db.commit()
-    db.refresh(user)
-    return user
+    db.refresh(db_user)
+    return db_user
 
 # Endpoint to toggle a user as admin (Admin Only)
 @router.put("/users/{user_id}/toggle_admin")

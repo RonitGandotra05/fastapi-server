@@ -196,12 +196,12 @@ async def upload_screenshot(
                 description=description,
                 recipient_id=recipient_id,
                 creator_id=current_user.id,
-                project_id=project.id if project else None,  # Now project is defined
+                project_id=project.id if project else None,
                 status=BugStatus.assigned,
-                media_type=media_type,
+                media_type=media_type or 'image',
                 severity=severity_level,
                 tab_url=tab_url,
-                modified_date=datetime.now(timezone.utc),  # Use UTC time
+                modified_date=datetime.now(timezone.utc),
             )
             
             db.add(bug_report)

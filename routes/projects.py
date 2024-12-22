@@ -5,6 +5,7 @@ from models import User, Project, BugReport
 from auth import RoleChecker
 from schemas import ProjectCreate, ProjectUpdate, ProjectResponse, BugReportResponse
 from typing import List
+from datetime import datetime
 
 router = APIRouter()
 
@@ -19,7 +20,9 @@ def create_project(
         raise HTTPException(status_code=400, detail="Project with this name already exists")
     new_project = Project(
         name=project.name,
-        description=project.description
+        description=project.description,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow()
     )
     db.add(new_project)
     db.commit()

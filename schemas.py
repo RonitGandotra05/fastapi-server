@@ -15,15 +15,15 @@ class UserResponse(BaseModel):
 
 class BugReportResponse(BaseModel):
     id: int
-    image_url: str
+    image_url: Optional[str]
     description: str
     recipient_id: Optional[int] = None
     creator_id: Optional[int] = None  
     status: BugStatus
     recipient: Optional[str] = None
     creator: Optional[str] = None  
-    media_type: str
-    modified_date: datetime
+    media_type: Optional[str]
+    modified_date: Optional[datetime]
     severity: SeverityLevel
     project_id: Optional[int] = None
     project_name: Optional[str] = None
@@ -76,6 +76,7 @@ class ProjectUpdate(BaseModel):
 
 class ProjectResponse(ProjectBase):
     id: int
+    description: Optional[str]
     created_at: datetime
     updated_at: datetime
 
@@ -90,7 +91,7 @@ class BugReportCommentResponse(BaseModel):
     bug_report_id: int
     user_name: str
     comment: str
-    created_at: datetime
+    created_at: Optional[datetime]
 
     class Config:
         from_attributes = True
