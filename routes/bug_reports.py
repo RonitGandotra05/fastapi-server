@@ -41,8 +41,8 @@ class BugReportResponse(BaseModel):
     recipient_id: Optional[int]
     creator_id: Optional[int]
     status: str
-    recipient: str
-    creator: str
+    recipient: Optional[str] = None
+    creator: Optional[str] = None
     media_type: str
     modified_date: datetime
     severity: str
@@ -66,7 +66,7 @@ class BugReportResponse(BaseModel):
             recipient_id=bug_report.recipient_id,
             creator_id=bug_report.creator_id,
             status=bug_report.status.value,
-            recipient=bug_report.recipient.name if bug_report.recipient else None,
+            recipient=bug_report.recipient.name if bug_report.recipient else "",
             creator=bug_report.creator.email if bug_report.creator else None,
             media_type=bug_report.media_type,
             # Add UTC timezone info to the timestamp
@@ -402,11 +402,25 @@ async def list_bug_reports(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
-    bug_reports = db.query(BugReport).options(
-        joinedload(BugReport.recipient),
-        joinedload(BugReport.creator)
-    ).all()
-    return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
+    try:
+        bug_reports = db.query(BugReport).options(
+            joinedload(BugReport.recipient),
+            joinedload(BugReport.creator),
+            joinedload(BugReport.project),
+            joinedload(BugReport.cc_recipients).joinedload(BugReportCC.cc_recipient)
+        ).all()
+        
+        for bug in bug_reports:
+            logging.info(f"Processing bug report {bug.id}: recipient={bug.recipient_id}, "
+                        f"has_recipient={bug.recipient is not None}")
+
+        return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
+    except Exception as e:
+        logging.error(f"Error in list_bug_reports: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error while fetching bug reports: {str(e)}"
+        )
 
 @router.put("/bug_reports/{bug_id}/toggle_status")
 async def toggle_bug_report_status(
