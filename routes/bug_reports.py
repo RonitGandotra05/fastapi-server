@@ -245,7 +245,7 @@ async def upload_screenshot(
                         f"*Project:*\n{project.name if project else 'No Project'}\n\n"
                         f"*CC Recipients:*\n"
                         f"{', '.join(cc_user.name for cc_user in cc_recipient_users) if cc_recipient_users else 'None'}"
-                        f"{f'\n\n*Tab URL:*\n{tab_url}' if tab_url else ''}"
+                        f"{('\n\n*Tab URL:*\n' + tab_url) if tab_url else ''}"
                     )
                     await send_media_with_caption(
                         phone_number=recipient_user.phone,
@@ -270,7 +270,7 @@ async def upload_screenshot(
                     f"*Description:*\n{description}\n\n"
                     f"*Severity:*\n{severity_level.value}\n\n"
                     f"*Project:*\n{project.name if project else 'No Project'}"
-                    f"{f'\n\n*Tab URL:*\n{tab_url}' if tab_url else ''}"
+                    f"{('\n\n*Tab URL:*\n' + tab_url) if tab_url else ''}"
                 )
                 
                 for cc_user in cc_recipient_users:
@@ -473,7 +473,7 @@ async def toggle_bug_report_status(
                 f"*Status:*\n{bug_report.status.value}\n\n"
                 f"*Updated by:*\n{current_user.name} ({current_user.email})\n\n"
                 f"*View Bug Report:*\n{bug_link}"
-                f"{f'\n\n*Tab URL:*\n{bug_report.tab_url}' if bug_report.tab_url else ''}"
+                f"{('\n\n*Tab URL:*\n' + bug_report.tab_url) if bug_report.tab_url else ''}"
             )
             try:
                 await send_media_with_caption(
@@ -502,7 +502,7 @@ async def toggle_bug_report_status(
                     f"*Status:*\n{bug_report.status.value}\n\n"
                     f"*Updated by:*\n{current_user.name} ({current_user.email})\n\n"
                     f"*View Bug Report:*\n{bug_link}"
-                    f"{f'\n\n*Tab URL:*\n{bug_report.tab_url}' if bug_report.tab_url else ''}"
+                    f"{('\n\n*Tab URL:*\n' + bug_report.tab_url) if bug_report.tab_url else ''}"
                 )
                 try:
                     await send_media_with_caption(
@@ -532,7 +532,7 @@ async def toggle_bug_report_status(
                 f"*Status:*\n{bug_report.status.value}\n\n"
                 f"*Updated by:*\n{current_user.name} ({current_user.email})\n\n"
                 f"*View Bug Report:*\n{bug_link}"
-                f"{f'\n\n*Tab URL:*\n{bug_report.tab_url}' if bug_report.tab_url else ''}"
+                f"{('\n\n*Tab URL:*\n' + bug_report.tab_url) if bug_report.tab_url else ''}"
             )
             try:
                 await send_media_with_caption(
