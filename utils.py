@@ -7,10 +7,17 @@ from typing import Optional
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def send_media_with_caption(phone_number: str, media_url: Optional[str], caption: str):
-    logger.info(f"Starting send_media_with_caption: phone={phone_number}, media_url={media_url}")
+async def send_media_with_caption(
+    phone_number: str, 
+    media_url: Optional[str] = None,
+    media_link: Optional[str] = None,
+    caption: str = "",
+    media_type: str = "image",
+    tab_url: Optional[str] = None
+):
+    logger.info(f"Starting send_media_with_caption: phone={phone_number}, media_url={media_url or media_link}")
     
-    if not media_url:
+    if not media_url and not media_link:
         logger.info("No media URL, falling back to text message")
         return await send_text_message(phone_number, caption)
 
@@ -21,7 +28,7 @@ async def send_media_with_caption(phone_number: str, media_url: Optional[str], c
     payload = {
         "token": token,
         "to": f"{phone_number}@c.us",
-        "image": media_url,
+        "image": media_url or media_link,
         "caption": caption
     }
     

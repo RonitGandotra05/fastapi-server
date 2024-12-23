@@ -235,10 +235,24 @@ async def upload_screenshot(
             if recipient_user and recipient_user.phone:
                 logging.info(f"Sending WhatsApp notification to: {recipient_user.phone}")
                 try:
+                    caption = (
+                        f"*New Bug Report*\n"
+                        f"━━━━━━━━━━━━━━━━\n\n"
+                        f"Hello {recipient_user.name},\n\n"
+                        f"You have been assigned a new bug report by {current_user.name}.\n\n"
+                        f"*Description:*\n{description}\n\n"
+                        f"*Severity:*\n{severity_level.value}\n\n"
+                        f"*Project:*\n{project.name if project else 'No Project'}\n\n"
+                        f"*CC Recipients:*\n"
+                        f"{', '.join(cc_user.name for cc_user in cc_recipient_users) if cc_recipient_users else 'None'}"
+                        f"{f'\n\n*Tab URL:*\n{tab_url}' if tab_url else ''}"
+                    )
                     await send_media_with_caption(
                         phone_number=recipient_user.phone,
                         media_url=image_url,
-                        caption=f"New bug report assigned by {current_user.name}\n\nDescription: {description}"
+                        caption=caption,
+                        media_type=media_type,
+                        tab_url=tab_url
                     )
                     logging.info("WhatsApp notification sent successfully")
                 except Exception as e:
@@ -256,13 +270,14 @@ async def upload_screenshot(
                     f"*Description:*\n{description}\n\n"
                     f"*Severity:*\n{severity_level.value}\n\n"
                     f"*Project:*\n{project.name if project else 'No Project'}"
+                    f"{f'\n\n*Tab URL:*\n{tab_url}' if tab_url else ''}"
                 )
                 
                 for cc_user in cc_recipient_users:
                     if cc_user.phone:
-                        send_media_with_caption(
+                        await send_media_with_caption(
                             phone_number=cc_user.phone,
-                            media_link=image_url,
+                            media_url=image_url,
                             caption=cc_caption,
                             media_type=media_type,
                             tab_url=tab_url
@@ -430,7 +445,7 @@ async def toggle_bug_report_status(
         # Base message for main recipient and creator
         base_caption = (
             f"*Bug {bug_report.status.value.title()}*\n"
-            f"━━━━━━━━━━━━━━━━━━━\n\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
             f"Hello {bug_report.recipient.name},\n\n"
             f"*Bug Report ID:*\n{bug_report.id}\n\n"
             f"*Description:*\n{bug_report.description}\n\n"
@@ -458,13 +473,14 @@ async def toggle_bug_report_status(
                 f"*Status:*\n{bug_report.status.value}\n\n"
                 f"*Updated by:*\n{current_user.name} ({current_user.email})\n\n"
                 f"*View Bug Report:*\n{bug_link}"
+                f"{f'\n\n*Tab URL:*\n{bug_report.tab_url}' if bug_report.tab_url else ''}"
             )
             try:
-                send_media_with_caption(
-                    creator.phone,
-                    bug_report.image_url,
-                    creator_caption,
-                    bug_report.media_type,
+                await send_media_with_caption(
+                    phone_number=creator.phone,
+                    media_url=bug_report.image_url,
+                    caption=creator_caption,
+                    media_type=bug_report.media_type,
                     tab_url=bug_report.tab_url
                 )
                 print(f"Notification sent to creator: {creator.name}")
@@ -477,7 +493,7 @@ async def toggle_bug_report_status(
             if cc_recipient and cc_recipient.phone:
                 cc_caption = (
                     f"*CC: Bug {bug_report.status.value.title()}*\n"
-                    f"━━━━━━━━━━━━━━━━\n\n"
+                    f"━━━━━━━━━━━━━━━\n\n"
                     f"Hello {cc_recipient.name},\n\n"
                     f"*Bug Report ID:*\n{bug_report.id}\n\n"
                     f"*Description:*\n{bug_report.description}\n\n"
@@ -486,13 +502,14 @@ async def toggle_bug_report_status(
                     f"*Status:*\n{bug_report.status.value}\n\n"
                     f"*Updated by:*\n{current_user.name} ({current_user.email})\n\n"
                     f"*View Bug Report:*\n{bug_link}"
+                    f"{f'\n\n*Tab URL:*\n{bug_report.tab_url}' if bug_report.tab_url else ''}"
                 )
                 try:
-                    send_media_with_caption(
-                        cc_recipient.phone,
-                        bug_report.image_url,
-                        cc_caption,
-                        bug_report.media_type,
+                    await send_media_with_caption(
+                        phone_number=cc_recipient.phone,
+                        media_url=bug_report.image_url,
+                        caption=cc_caption,
+                        media_type=bug_report.media_type,
                         tab_url=bug_report.tab_url
                     )
                     print(f"Notification sent to CC recipient: {cc_recipient.name}")
@@ -515,13 +532,14 @@ async def toggle_bug_report_status(
                 f"*Status:*\n{bug_report.status.value}\n\n"
                 f"*Updated by:*\n{current_user.name} ({current_user.email})\n\n"
                 f"*View Bug Report:*\n{bug_link}"
+                f"{f'\n\n*Tab URL:*\n{bug_report.tab_url}' if bug_report.tab_url else ''}"
             )
             try:
-                send_media_with_caption(
-                    recipient.phone,
-                    bug_report.image_url,
-                    recipient_caption,
-                    bug_report.media_type,
+                await send_media_with_caption(
+                    phone_number=recipient.phone,
+                    media_url=bug_report.image_url,
+                    caption=recipient_caption,
+                    media_type=bug_report.media_type,
                     tab_url=bug_report.tab_url
                 )
                 print(f"Notification sent to recipient: {recipient.name}")
@@ -603,11 +621,11 @@ async def assign_bug_report(
             f"*Bug Report ID:*\n{bug_report.id}\n\n"
             f"*Description:*\n{bug_report.description}"
         )
-        send_media_with_caption(
-            recipient_user.phone,
-            bug_report.image_url,
-            caption,
-            bug_report.media_type,
+        await send_media_with_caption(
+            phone_number=recipient_user.phone,
+            media_url=bug_report.image_url,
+            caption=caption,
+            media_type=bug_report.media_type,
             tab_url=bug_report.tab_url
         )
     except Exception as e:
@@ -669,9 +687,9 @@ async def send_bug_report_reminder(
         # Send to main recipient
         if bug_report.recipient and bug_report.recipient.phone:
             try:
-                send_media_with_caption(
+                await send_media_with_caption(
                     phone_number=bug_report.recipient.phone,
-                    media_link=bug_report.image_url,
+                    media_url=bug_report.image_url,
                     caption=caption,
                     media_type=bug_report.media_type,
                     tab_url=bug_report.tab_url
@@ -705,9 +723,9 @@ async def send_bug_report_reminder(
                     f"*Originally Assigned:*\n{formatted_date}"
                 )
                 try:
-                    send_media_with_caption(
+                    await send_media_with_caption(
                         phone_number=cc_recipient.phone,
-                        media_link=bug_report.image_url,
+                        media_url=bug_report.image_url,
                         caption=cc_caption,
                         media_type=bug_report.media_type,
                         tab_url=bug_report.tab_url
