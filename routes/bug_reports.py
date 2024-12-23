@@ -14,6 +14,8 @@ import aiohttp
 from fastapi.responses import StreamingResponse
 import io
 from pydantic import BaseModel
+import logging
+
 router = APIRouter()
 
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
@@ -112,6 +114,8 @@ async def upload_screenshot(
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
     try:
+        logging.info(f"Processing bug report upload for recipient: {recipient_name}")
+        
         # Handle main recipient
         recipient_user = None
         recipient_id = None
@@ -229,25 +233,16 @@ async def upload_screenshot(
         try:
             # Notify main recipient
             if recipient_user and recipient_user.phone:
-                caption = (
-                    f"*New Bug Report*\n"
-                    f"━━━━━━━━━━━━━━━━\n\n"
-                    f"Hello {recipient_user.name},\n\n"
-                    f"You have been assigned a new bug report by {current_user.name}.\n\n"
-                    f"*Description:*\n{description}\n\n"
-                    f"*Severity:*\n{severity_level.value}\n\n"
-                    f"*Project:*\n{project.name if project else 'No Project'}\n\n"
-                    f"*CC Recipients:*\n{', '.join(cc_user.name for cc_user in cc_recipient_users) if cc_recipient_users else 'None'}"
-                )
-                
-                send_media_with_caption(
-                    phone_number=recipient_user.phone,
-                    media_link=image_url,
-                    caption=caption,
-                    media_type=media_type,
-                    tab_url=tab_url
-                )
-                print(f"Notification sent to main recipient: {recipient_user.name}")
+                logging.info(f"Sending WhatsApp notification to: {recipient_user.phone}")
+                try:
+                    await send_media_with_caption(
+                        phone_number=recipient_user.phone,
+                        media_url=image_url,
+                        caption=f"New bug report assigned by {current_user.name}\n\nDescription: {description}"
+                    )
+                    logging.info("WhatsApp notification sent successfully")
+                except Exception as e:
+                    logging.error(f"Failed to send WhatsApp notification: {str(e)}")
 
             # Notify CC recipients
             if cc_recipient_users and recipient_user:
