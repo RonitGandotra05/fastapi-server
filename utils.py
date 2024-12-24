@@ -49,7 +49,11 @@ async def send_text_message(phone_number: str, message: str):
     logger.info(f"Starting send_text_message: phone={phone_number}")
     
     token = os.getenv('ULTRAMSG_API_TOKEN')
-    logger.info(f"Token retrieved: {token[:4]}..." if token else "No token found!")
+    if not token:
+        logger.error("ULTRAMSG_API_TOKEN not found in environment variables")
+        raise ValueError("ULTRAMSG_API_TOKEN not configured")
+    
+    logger.info(f"Token retrieved: {token[:4]}...")
 
     url = "https://api.ultramsg.com/instance29265/messages/chat"
     payload = {
@@ -57,7 +61,7 @@ async def send_text_message(phone_number: str, message: str):
         "to": f"{phone_number}@c.us",
         "body": message
     }
-
+    
     logger.info(f"Sending request to: {url}")
     logger.info(f"With payload: {payload}")
 
@@ -65,8 +69,13 @@ async def send_text_message(phone_number: str, message: str):
         response = requests.post(url, json=payload, headers={"Content-Type": "application/json"})
         logger.info(f"Response status: {response.status_code}")
         logger.info(f"Response content: {response.text}")
+        
+        if response.status_code != 200:
+            logger.error(f"Error response from UltraMsg API: {response.text}")
+            
         response.raise_for_status()
         return response.json()
     except Exception as e:
         logger.error(f"Error sending WhatsApp message: {str(e)}")
+        logger.exception("Full traceback:")
         raise

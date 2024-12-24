@@ -75,7 +75,7 @@ def reset_password(
 
 # Registration Endpoint (Admin Only)
 @router.post("/register")
-def register_user(
+async def register_user(
     name: str = Form(...),
     email: str = Form(...),
     phone: str = Form(...),
@@ -91,8 +91,8 @@ def register_user(
         raise HTTPException(status_code=400, detail="Email already registered")
     
     user = User(
-        name=name,  # Using trimmed name
-        email=email,  # Keep email as is
+        name=name,
+        email=email,
         phone=phone,
         password_hash=get_password_hash(password)
     )
@@ -110,13 +110,16 @@ def register_user(
             f"Please log in to the Bug Tracker Extension to report bugs. \n\n"
             f"Download: https://chromewebstore.google.com/detail/bugs-report-rz/egjnfjgaagjiigmdedeobeineeopnbff"
         )
-        send_text_message(phone, message)
+        await send_text_message(phone, message)
     except Exception as e:
         print(f"Error sending message to user: {e}")
         # handle failure
         db.delete(user)
         db.commit()
-        raise HTTPException(status_code=500, detail="Failed to send credentials to user")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to send credentials to user: {str(e)}"
+        )
     
     return {"message": "User registered successfully"}
 
