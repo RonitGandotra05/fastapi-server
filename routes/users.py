@@ -100,15 +100,25 @@ async def register_user(
     db.commit()
     db.refresh(user)
     
-    # Send credentials via WhatsApp
+    # Send credentials via WhatsApp with better formatting
     try:
         message = (
+            f"*Welcome to BugsZap!*\n"
+            f"━━━━━━━━━━━━━━━━\n\n"
             f"Hello {name},\n\n"
-            f"Your account has been created.\n"
-            f"Email: {email}\n"
-            f"Password: {password}\n\n"
-            f"Please log in to the Bug Tracker Extension to report bugs. \n\n"
-            f"Download: https://chromewebstore.google.com/detail/bugs-report-rz/egjnfjgaagjiigmdedeobeineeopnbff"
+            f"Your account has been created successfully by {current_user.name}.\n\n"
+            f"*Login Credentials*\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"*Email:*\n{email}\n\n"
+            f"*Password:*\n{password}\n\n"
+            f"*Next Steps*\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"1. Install the Chrome Extension\n"
+            f"2. Log in with your credentials\n"
+            f"3. Start reporting bugs!\n\n"
+            f"*Download Extension:*\n"
+            f"https://chromewebstore.google.com/detail/bugs-report-rz/egjnfjgaagjiigmdedeobeineeopnbff\n\n"
+            f"For any assistance, please contact your administrator."
         )
         await send_text_message(phone, message)
     except Exception as e:
