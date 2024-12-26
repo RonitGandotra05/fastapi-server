@@ -827,7 +827,7 @@ async def add_bug_report_comment(
                     f"*Update Message:*\n{comment_data.comment}\n\n"
                     f"*View Bug Report:*\nhttps://bugszap.netlify.app/homeV2/{bug_id}"
                 )
-                send_text_message(bug_report.creator.phone, creator_message)
+                await send_text_message(bug_report.creator.phone, creator_message)
                 notified_users.add(bug_report.creator.id)
                 print(f"Notification sent to creator: {bug_report.creator.name}")
 
@@ -844,7 +844,7 @@ async def add_bug_report_comment(
                     f"*Update Message:*\n{comment_data.comment}\n\n"
                     f"*View Bug Report:*\nhttps://bugszap.netlify.app/homeV2/{bug_id}"
                 )
-                send_text_message(bug_report.recipient.phone, recipient_message)
+                await send_text_message(bug_report.recipient.phone, recipient_message)
                 notified_users.add(bug_report.recipient.id)
                 print(f"Notification sent to recipient: {bug_report.recipient.name}")
 
@@ -862,7 +862,7 @@ async def add_bug_report_comment(
                         f"*Update Message:*\n{comment_data.comment}\n\n"
                         f"*View Bug Report:*\nhttps://bugszap.netlify.app/homeV2/{bug_id}"
                     )
-                    send_text_message(cc_entry.cc_recipient.phone, cc_message)
+                    await send_text_message(cc_entry.cc_recipient.phone, cc_message)
                     notified_users.add(cc_entry.cc_recipient.id)
                     print(f"Notification sent to CC recipient: {cc_entry.cc_recipient.name}")
 

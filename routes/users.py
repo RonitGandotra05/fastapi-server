@@ -21,7 +21,7 @@ otp_store = {}  # Key: email, Value: {'otp': otp, 'expires_at': datetime}
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 1440))
 
 @router.post("/forgot_password")
-def forgot_password(
+async def forgot_password(
     email: str = Form(...),
     db: Session = Depends(get_db)
 ):
@@ -37,13 +37,21 @@ def forgot_password(
     # Store the OTP and expiry
     otp_store[email] = {'otp': otp, 'expires_at': expires_at}
 
-    # Send the OTP via WhatsApp
+    # Send the OTP via WhatsApp with better formatting
     try:
-        message = f"Your password reset OTP is: {otp}. It will expire in 5 minutes."
-        send_text_message(user.phone, message)
+        message = (
+            f"*Password Reset OTP*\n"
+            f"━━━━━━━━━━━━━━━━\n\n"
+            f"Hello {user.name},\n\n"
+            f"You have requested to reset your password.\n\n"
+            f"*Your OTP is:*\n{otp}\n\n"
+            f"This OTP will expire in 5 minutes.\n\n"
+            f"If you did not request this password reset, please ignore this message."
+        )
+        await send_text_message(user.phone, message)
     except Exception as e:
         print(f"Error sending OTP: {e}")
-        raise HTTPException(status_code=500, detail="Failed to send OTP")
+        raise HTTPException(status_code=500, detail=f"Failed to send OTP: {str(e)}")
 
     return {"message": "If an account with that email exists, an OTP has been sent to the registered phone number."}
 
