@@ -781,16 +781,21 @@ async def add_bug_report_comment(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
+    print(f"Adding comment to bug {bug_id} by user {current_user.name}")
+    
     # Check if bug report exists with all necessary relationships loaded
     bug_report = db.query(BugReport).options(
         joinedload(BugReport.creator),
         joinedload(BugReport.recipient),
-        joinedload(BugReport.project),  # Add project relationship
+        joinedload(BugReport.project),
         joinedload(BugReport.cc_recipients).joinedload(BugReportCC.cc_recipient)
     ).filter(BugReport.id == bug_id).first()
     
     if not bug_report:
         raise HTTPException(status_code=404, detail="Bug report not found")
+
+    print(f"Found bug report. Creator: {bug_report.creator.name if bug_report.creator else 'None'}, "
+          f"Recipient: {bug_report.recipient.name if bug_report.recipient else 'None'}")
 
     # Create new comment
     new_comment = BugReportComment(
@@ -804,6 +809,7 @@ async def add_bug_report_comment(
         db.add(new_comment)
         db.commit()
         db.refresh(new_comment)
+        print(f"Comment added successfully. ID: {new_comment.id}")
         
         # Keep track of who has been notified to avoid duplicates
         notified_users = set()
@@ -825,71 +831,79 @@ async def add_bug_report_comment(
             + (f"\n\n*Original Tab URL:*\n{bug_report.tab_url}" if bug_report.tab_url else "")
         )
         
-        # Notify creator if they're not the commenter
-        if (bug_report.creator and 
-            bug_report.creator.phone and 
-            bug_report.creator.id != current_user.id and
-            bug_report.creator.id not in notified_users):
-            
-            creator_message = (
-                f"*New Comment on Your Bug Report*\n"
-                f"━━━━━━━━━━━━━━━━\n\n"
-                f"Hello {bug_report.creator.name},\n\n"
-                + base_message
-            )
-            try:
-                await send_text_message(bug_report.creator.phone, creator_message)
-                notification_results.append(f"Notified creator: {bug_report.creator.name}")
-                notified_users.add(bug_report.creator.id)
-            except Exception as e:
-                notification_results.append(f"Failed to notify creator {bug_report.creator.name}: {str(e)}")
-
-        # Notify recipient if they're not the commenter
-        if (bug_report.recipient and 
-            bug_report.recipient.phone and 
-            bug_report.recipient.id != current_user.id and
-            bug_report.recipient.id not in notified_users):
-            
-            recipient_message = (
-                f"*New Comment on Assigned Bug Report*\n"
-                f"━━━━━━━━━━━━━━━━\n\n"
-                f"Hello {bug_report.recipient.name},\n\n"
-                + base_message
-            )
-            try:
-                await send_text_message(bug_report.recipient.phone, recipient_message)
-                notification_results.append(f"Notified recipient: {bug_report.recipient.name}")
-                notified_users.add(bug_report.recipient.id)
-            except Exception as e:
-                notification_results.append(f"Failed to notify recipient {bug_report.recipient.name}: {str(e)}")
-
-        # Notify CC recipients
-        for cc_entry in bug_report.cc_recipients:
-            if (cc_entry.cc_recipient and 
-                cc_entry.cc_recipient.phone and 
-                cc_entry.cc_recipient.id != current_user.id and
-                cc_entry.cc_recipient.id not in notified_users):
-                
-                cc_message = (
-                    f"*CC: New Comment on Bug Report*\n"
+        # Notify creator
+        if bug_report.creator and bug_report.creator.phone:
+            print(f"Attempting to notify creator: {bug_report.creator.name} at {bug_report.creator.phone}")
+            if bug_report.creator.id != current_user.id and bug_report.creator.id not in notified_users:
+                creator_message = (
+                    f"*New Comment on Your Bug Report*\n"
                     f"━━━━━━━━━━━━━━━━\n\n"
-                    f"Hello {cc_entry.cc_recipient.name},\n\n"
+                    f"Hello {bug_report.creator.name},\n\n"
                     + base_message
                 )
                 try:
-                    await send_text_message(cc_entry.cc_recipient.phone, cc_message)
-                    notification_results.append(f"Notified CC recipient: {cc_entry.cc_recipient.name}")
-                    notified_users.add(cc_entry.cc_recipient.id)
+                    await send_text_message(bug_report.creator.phone, creator_message)
+                    notification_results.append(f"Notified creator: {bug_report.creator.name}")
+                    notified_users.add(bug_report.creator.id)
+                    print(f"Successfully notified creator {bug_report.creator.name}")
                 except Exception as e:
-                    notification_results.append(f"Failed to notify CC recipient {cc_entry.cc_recipient.name}: {str(e)}")
+                    print(f"Failed to notify creator: {str(e)}")
+                    notification_results.append(f"Failed to notify creator {bug_report.creator.name}: {str(e)}")
+            else:
+                print(f"Skipping creator notification - same as commenter or already notified")
 
-        # Log notification results
+        # Notify recipient
+        if bug_report.recipient and bug_report.recipient.phone:
+            print(f"Attempting to notify recipient: {bug_report.recipient.name} at {bug_report.recipient.phone}")
+            if bug_report.recipient.id != current_user.id and bug_report.recipient.id not in notified_users:
+                recipient_message = (
+                    f"*New Comment on Assigned Bug Report*\n"
+                    f"━━━━━━━━━━━━━━━━\n\n"
+                    f"Hello {bug_report.recipient.name},\n\n"
+                    + base_message
+                )
+                try:
+                    await send_text_message(bug_report.recipient.phone, recipient_message)
+                    notification_results.append(f"Notified recipient: {bug_report.recipient.name}")
+                    notified_users.add(bug_report.recipient.id)
+                    print(f"Successfully notified recipient {bug_report.recipient.name}")
+                except Exception as e:
+                    print(f"Failed to notify recipient: {str(e)}")
+                    notification_results.append(f"Failed to notify recipient {bug_report.recipient.name}: {str(e)}")
+            else:
+                print(f"Skipping recipient notification - same as commenter or already notified")
+
+        # Notify CC recipients
+        for cc_entry in bug_report.cc_recipients:
+            if cc_entry.cc_recipient and cc_entry.cc_recipient.phone:
+                print(f"Attempting to notify CC recipient: {cc_entry.cc_recipient.name} at {cc_entry.cc_recipient.phone}")
+                if cc_entry.cc_recipient.id != current_user.id and cc_entry.cc_recipient.id not in notified_users:
+                    cc_message = (
+                        f"*CC: New Comment on Bug Report*\n"
+                        f"━━━━━━━━━━━━━━━━\n\n"
+                        f"Hello {cc_entry.cc_recipient.name},\n\n"
+                        + base_message
+                    )
+                    try:
+                        await send_text_message(cc_entry.cc_recipient.phone, cc_message)
+                        notification_results.append(f"Notified CC recipient: {cc_entry.cc_recipient.name}")
+                        notified_users.add(cc_entry.cc_recipient.id)
+                        print(f"Successfully notified CC recipient {cc_entry.cc_recipient.name}")
+                    except Exception as e:
+                        print(f"Failed to notify CC recipient: {str(e)}")
+                        notification_results.append(f"Failed to notify CC recipient {cc_entry.cc_recipient.name}: {str(e)}")
+                else:
+                    print(f"Skipping CC recipient notification - same as commenter or already notified")
+
+        # Log final results
+        print("\nNotification Results:")
         for result in notification_results:
             print(result)
             
         return BugReportCommentResponse.from_comment(new_comment)
         
     except Exception as e:
+        print(f"Error in add_bug_report_comment: {str(e)}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to add comment: {str(e)}")
 

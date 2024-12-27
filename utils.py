@@ -55,15 +55,19 @@ async def send_text_message(phone_number: str, message: str):
     
     logger.info(f"Token retrieved: {token[:4]}...")
 
+    # Format phone number correctly
+    formatted_phone = phone_number.replace("+", "").replace(" ", "").replace("-", "")
     url = "https://api.ultramsg.com/instance29265/messages/chat"
+    
     payload = {
         "token": token,
-        "to": f"{phone_number}@c.us",
+        "to": f"{formatted_phone}@c.us",
         "body": message
     }
     
     logger.info(f"Sending request to: {url}")
-    logger.info(f"With payload: {payload}")
+    logger.info(f"With payload (phone): {formatted_phone}@c.us")
+    logger.info(f"Message content: {message[:100]}...")  # Log first 100 chars of message
 
     try:
         response = requests.post(url, json=payload, headers={"Content-Type": "application/json"})
@@ -72,6 +76,7 @@ async def send_text_message(phone_number: str, message: str):
         
         if response.status_code != 200:
             logger.error(f"Error response from UltraMsg API: {response.text}")
+            raise Exception(f"UltraMsg API error: {response.text}")
             
         response.raise_for_status()
         return response.json()
