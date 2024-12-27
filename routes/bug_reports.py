@@ -781,10 +781,11 @@ async def add_bug_report_comment(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
-    # Check if bug report exists
+    # Check if bug report exists with all necessary relationships loaded
     bug_report = db.query(BugReport).options(
         joinedload(BugReport.creator),
         joinedload(BugReport.recipient),
+        joinedload(BugReport.project),  # Add project relationship
         joinedload(BugReport.cc_recipients).joinedload(BugReportCC.cc_recipient)
     ).filter(BugReport.id == bug_id).first()
     
@@ -796,7 +797,7 @@ async def add_bug_report_comment(
         bug_report_id=bug_id,
         user_name=current_user.name,
         comment=comment_data.comment,
-        created_at=datetime.now(timezone.utc)  # Use UTC time
+        created_at=datetime.now(timezone.utc)
     )
     
     try:
@@ -804,71 +805,87 @@ async def add_bug_report_comment(
         db.commit()
         db.refresh(new_comment)
         
-        # Prepare the base message for notifications
-        base_message = (
-            f"*Update on Bug Report from {current_user.name}*\n"
-            f"━━━━━━━━━━━━━━━━\n\n"
-        )
-        
         # Keep track of who has been notified to avoid duplicates
         notified_users = set()
+        notification_results = []
         
-        try:
-            # Notify creator if they're not the commenter
-            if (bug_report.creator and 
-                bug_report.creator.phone and 
-                bug_report.creator.name != current_user.name and
-                bug_report.creator.id not in notified_users):
-                
-                creator_message = (
-                    base_message +
-                    f"Hello {bug_report.creator.name},\n\n"
-                    f"*Bug ID:*\n{bug_id}\n\n"
-                    f"*Update Message:*\n{comment_data.comment}\n\n"
-                    f"*View Bug Report:*\nhttps://bugszap.netlify.app/homeV2/{bug_id}"
-                )
+        # Base message with better formatting
+        base_message = (
+            f"*New Comment on Bug Report*\n"
+            f"━━━━━━━━━━━━━━━━\n\n"
+            f"*Bug Report Details*\n"
+            f"ID: {bug_id}\n"
+            f"Project: {bug_report.project.name if bug_report.project else 'No Project'}\n"
+            f"Status: {bug_report.status.value}\n"
+            f"Severity: {bug_report.severity.value}\n\n"
+            f"*New Comment by {current_user.name}*\n"
+            f"{comment_data.comment}\n\n"
+            f"*View Bug Report:*\n"
+            f"https://bugszap.netlify.app/homeV2/{bug_id}"
+            + (f"\n\n*Original Tab URL:*\n{bug_report.tab_url}" if bug_report.tab_url else "")
+        )
+        
+        # Notify creator if they're not the commenter
+        if (bug_report.creator and 
+            bug_report.creator.phone and 
+            bug_report.creator.id != current_user.id and
+            bug_report.creator.id not in notified_users):
+            
+            creator_message = (
+                f"*New Comment on Your Bug Report*\n"
+                f"━━━━━━━━━━━━━━━━\n\n"
+                f"Hello {bug_report.creator.name},\n\n"
+                + base_message
+            )
+            try:
                 await send_text_message(bug_report.creator.phone, creator_message)
+                notification_results.append(f"Notified creator: {bug_report.creator.name}")
                 notified_users.add(bug_report.creator.id)
-                print(f"Notification sent to creator: {bug_report.creator.name}")
+            except Exception as e:
+                notification_results.append(f"Failed to notify creator {bug_report.creator.name}: {str(e)}")
 
-            # Notify recipient if they're not the commenter and haven't been notified yet
-            if (bug_report.recipient and 
-                bug_report.recipient.phone and 
-                bug_report.recipient.name != current_user.name and
-                bug_report.recipient.id not in notified_users):
-                
-                recipient_message = (
-                    base_message +
-                    f"Hello {bug_report.recipient.name},\n\n"
-                    f"*Bug ID:*\n{bug_id}\n\n"
-                    f"*Update Message:*\n{comment_data.comment}\n\n"
-                    f"*View Bug Report:*\nhttps://bugszap.netlify.app/homeV2/{bug_id}"
-                )
+        # Notify recipient if they're not the commenter
+        if (bug_report.recipient and 
+            bug_report.recipient.phone and 
+            bug_report.recipient.id != current_user.id and
+            bug_report.recipient.id not in notified_users):
+            
+            recipient_message = (
+                f"*New Comment on Assigned Bug Report*\n"
+                f"━━━━━━━━━━━━━━━━\n\n"
+                f"Hello {bug_report.recipient.name},\n\n"
+                + base_message
+            )
+            try:
                 await send_text_message(bug_report.recipient.phone, recipient_message)
+                notification_results.append(f"Notified recipient: {bug_report.recipient.name}")
                 notified_users.add(bug_report.recipient.id)
-                print(f"Notification sent to recipient: {bug_report.recipient.name}")
+            except Exception as e:
+                notification_results.append(f"Failed to notify recipient {bug_report.recipient.name}: {str(e)}")
 
-            # Notify CC recipients if they haven't been notified yet
-            for cc_entry in bug_report.cc_recipients:
-                if (cc_entry.cc_recipient and 
-                    cc_entry.cc_recipient.phone and 
-                    cc_entry.cc_recipient.name != current_user.name and
-                    cc_entry.cc_recipient.id not in notified_users):
-                    
-                    cc_message = (
-                        base_message +
-                        f"Hello {cc_entry.cc_recipient.name},\n\n"
-                        f"*Bug ID:*\n{bug_id}\n\n"
-                        f"*Update Message:*\n{comment_data.comment}\n\n"
-                        f"*View Bug Report:*\nhttps://bugszap.netlify.app/homeV2/{bug_id}"
-                    )
+        # Notify CC recipients
+        for cc_entry in bug_report.cc_recipients:
+            if (cc_entry.cc_recipient and 
+                cc_entry.cc_recipient.phone and 
+                cc_entry.cc_recipient.id != current_user.id and
+                cc_entry.cc_recipient.id not in notified_users):
+                
+                cc_message = (
+                    f"*CC: New Comment on Bug Report*\n"
+                    f"━━━━━━━━━━━━━━━━\n\n"
+                    f"Hello {cc_entry.cc_recipient.name},\n\n"
+                    + base_message
+                )
+                try:
                     await send_text_message(cc_entry.cc_recipient.phone, cc_message)
+                    notification_results.append(f"Notified CC recipient: {cc_entry.cc_recipient.name}")
                     notified_users.add(cc_entry.cc_recipient.id)
-                    print(f"Notification sent to CC recipient: {cc_entry.cc_recipient.name}")
+                except Exception as e:
+                    notification_results.append(f"Failed to notify CC recipient {cc_entry.cc_recipient.name}: {str(e)}")
 
-        except Exception as e:
-            print(f"Error sending notifications: {e}")
-            # Continue even if notifications fail
+        # Log notification results
+        for result in notification_results:
+            print(result)
             
         return BugReportCommentResponse.from_comment(new_comment)
         
