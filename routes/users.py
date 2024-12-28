@@ -91,55 +91,82 @@ async def register_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['admin']))
 ):
+    # Log the registration request
+    print("\n=== User Registration Request ===")
+    print(f"Requested by admin: {current_user.name} ({current_user.email})")
+    print(f"New User Details:")
+    print(f"Name: {name}")
+    print(f"Email: {email}")
+    print(f"Phone: {phone}")
+    print(f"Password length: {len(password)} characters")
+    print("================================\n")
+
     # Trim whitespace from name before proceeding
     name = name.strip()
     
     existing_user = get_user_by_email(db, email=email)
     if existing_user:
+        print(f"❌ Registration failed: Email '{email}' already registered")
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    user = User(
-        name=name,
-        email=email,
-        phone=phone,
-        password_hash=get_password_hash(password)
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    
-    # Send credentials via WhatsApp with better formatting
     try:
-        message = (
-            f"*Welcome to BugsZap!*\n"
-            f"━━━━━━━━━━━━━━━━\n\n"
-            f"Hello {name},\n\n"
-            f"Your account has been created successfully by {current_user.name}.\n\n"
-            f"*Login Credentials*\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"*Email:*\n{email}\n\n"
-            f"*Password:*\n{password}\n\n"
-            f"*Next Steps*\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"1. Install the Chrome Extension\n"
-            f"2. Log in with your credentials\n"
-            f"3. Start reporting bugs!\n\n"
-            f"*Download Extension:*\n"
-            f"https://chromewebstore.google.com/detail/bugs-report-rz/egjnfjgaagjiigmdedeobeineeopnbff\n\n"
-            f"For any assistance, please contact your administrator."
+        user = User(
+            name=name,
+            email=email,
+            phone=phone,
+            password_hash=get_password_hash(password)
         )
-        await send_text_message(phone, message)
-    except Exception as e:
-        print(f"Error sending message to user: {e}")
-        # handle failure
-        db.delete(user)
+        db.add(user)
         db.commit()
+        db.refresh(user)
+        
+        print(f"✅ User created successfully:")
+        print(f"ID: {user.id}")
+        print(f"Name: {user.name}")
+        print(f"Email: {user.email}")
+        
+        # Send credentials via WhatsApp with better formatting
+        try:
+            print(f"Sending WhatsApp notification to: {phone}")
+            message = (
+                f"*Welcome to BugsZap!*\n"
+                f"━━━━━━━━━━━━━━━━\n\n"
+                f"Hello {name},\n\n"
+                f"Your account has been created successfully by {current_user.name}.\n\n"
+                f"*Login Credentials*\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"*Email:*\n{email}\n\n"
+                f"*Password:*\n{password}\n\n"
+                f"*Next Steps*\n"
+                f"━━━━━━━━━━━━━━━━\n"
+                f"1. Install the Chrome Extension\n"
+                f"2. Log in with your credentials\n"
+                f"3. Start reporting bugs!\n\n"
+                f"*Download Extension:*\n"
+                f"https://chromewebstore.google.com/detail/bugs-report-rz/egjnfjgaagjiigmdedeobeineeopnbff\n\n"
+                f"For any assistance, please contact your administrator."
+            )
+            await send_text_message(phone, message)
+            print("✅ WhatsApp notification sent successfully")
+        except Exception as e:
+            print(f"❌ Error sending WhatsApp notification: {str(e)}")
+            db.delete(user)
+            db.commit()
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to send credentials to user: {str(e)}"
+            )
+        
+        print("✅ Registration completed successfully\n")
+        return {"message": "User registered successfully"}
+        
+    except Exception as e:
+        print(f"❌ Error during registration: {str(e)}")
+        db.rollback()
         raise HTTPException(
             status_code=500, 
-            detail=f"Failed to send credentials to user: {str(e)}"
+            detail=f"Registration failed: {str(e)}"
         )
-    
-    return {"message": "User registered successfully"}
 
 # Merged Login Endpoint (User and Admin Login)
 @router.post("/login")
