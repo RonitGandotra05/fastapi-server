@@ -91,25 +91,29 @@ async def register_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['admin']))
 ):
-    # Log the registration request
-    print("\n=== User Registration Request ===")
-    print(f"Requested by admin: {current_user.name} ({current_user.email})")
-    print(f"New User Details:")
+    # Log the incoming request BEFORE any processing
+    print("\n=== INCOMING REGISTRATION REQUEST ===")
+    print("Request Data:")
     print(f"Name: {name}")
     print(f"Email: {email}")
     print(f"Phone: {phone}")
-    print(f"Password length: {len(password)} characters")
-    print("================================\n")
+    print(f"Password Length: {len(password)} characters")
+    print("=====================================\n")
 
-    # Trim whitespace from name before proceeding
-    name = name.strip()
-    
-    existing_user = get_user_by_email(db, email=email)
-    if existing_user:
-        print(f"❌ Registration failed: Email '{email}' already registered")
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
     try:
+        # Log authorization attempt
+        print(f"Authorization Check:")
+        print(f"Current User: {current_user.name if current_user else 'No User'}")
+        print(f"Is Admin: {current_user.is_admin if current_user else False}")
+        
+        # Rest of your existing code...
+        name = name.strip()
+        
+        existing_user = get_user_by_email(db, email=email)
+        if existing_user:
+            print(f"❌ Registration failed: Email '{email}' already registered")
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
         user = User(
             name=name,
             email=email,
@@ -125,9 +129,9 @@ async def register_user(
         print(f"Name: {user.name}")
         print(f"Email: {user.email}")
         
-        # Send credentials via WhatsApp with better formatting
+        # Send WhatsApp notification
         try:
-            print(f"Sending WhatsApp notification to: {phone}")
+            print(f"📱 Sending WhatsApp notification to: {phone}")
             message = (
                 f"*Welcome to BugsZap!*\n"
                 f"━━━━━━━━━━━━━━━━\n\n"
@@ -160,8 +164,11 @@ async def register_user(
         print("✅ Registration completed successfully\n")
         return {"message": "User registered successfully"}
         
+    except HTTPException as he:
+        print(f"❌ HTTP Exception: {he.detail}")
+        raise he
     except Exception as e:
-        print(f"❌ Error during registration: {str(e)}")
+        print(f"❌ Unexpected error during registration: {str(e)}")
         db.rollback()
         raise HTTPException(
             status_code=500, 

@@ -75,10 +75,18 @@ def RoleChecker(roles: List[str]):
     async def role_checker(
         current_user: User = Depends(get_current_user)
     ):
+        print("\n=== ROLE CHECK ===")
+        print(f"Required Roles: {roles}")
+        print(f"User: {current_user.name if current_user else 'No User'}")
+        print(f"User Roles: {'admin' if current_user and current_user.is_admin else 'user'}")
+        
         if current_user.is_admin and 'admin' in roles:
+            print("✅ Access granted: User is admin")
             return current_user
         elif not current_user.is_admin and 'user' in roles:
+            print("✅ Access granted: User is regular user")
             return current_user
         else:
+            print("❌ Access denied: Insufficient permissions")
             raise HTTPException(status_code=403, detail="Access forbidden")
-    return role_checker  # Return the function itself
+    return role_checker

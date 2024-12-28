@@ -15,19 +15,24 @@ def create_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['admin']))
 ):
-    # Log the request details
-    print("\n=== Project Creation Request ===")
-    print(f"Requested by admin: {current_user.name} ({current_user.email})")
-    print(f"Project Name: {project.name}")
-    print(f"Project Description: {project.description}")
-    print("================================\n")
-
-    existing_project = db.query(Project).filter(Project.name == project.name).first()
-    if existing_project:
-        print(f"❌ Project creation failed: Project with name '{project.name}' already exists")
-        raise HTTPException(status_code=400, detail="Project with this name already exists")
+    # Log the incoming request BEFORE any processing
+    print("\n=== INCOMING PROJECT CREATION REQUEST ===")
+    print("Project Data:")
+    print(f"Name: {project.name}")
+    print(f"Description: {project.description}")
+    print("=========================================\n")
 
     try:
+        # Log authorization attempt
+        print(f"Authorization Check:")
+        print(f"Current User: {current_user.name if current_user else 'No User'}")
+        print(f"Is Admin: {current_user.is_admin if current_user else False}")
+
+        existing_project = db.query(Project).filter(Project.name == project.name).first()
+        if existing_project:
+            print(f"❌ Project creation failed: Project with name '{project.name}' already exists")
+            raise HTTPException(status_code=400, detail="Project with this name already exists")
+
         new_project = Project(
             name=project.name,
             description=project.description,
@@ -41,12 +46,20 @@ def create_project(
         print(f"✅ Project created successfully:")
         print(f"ID: {new_project.id}")
         print(f"Name: {new_project.name}")
+        print(f"Description: {new_project.description}")
         print(f"Created at: {new_project.created_at}")
         return new_project
+
+    except HTTPException as he:
+        print(f"❌ HTTP Exception: {he.detail}")
+        raise he
     except Exception as e:
-        print(f"❌ Error creating project: {str(e)}")
+        print(f"❌ Unexpected error creating project: {str(e)}")
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Failed to create project: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to create project: {str(e)}"
+        )
 
 @router.delete("/projects/{project_id}")
 def delete_project(
