@@ -1,5 +1,10 @@
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from sqlalchemy import inspect, MetaData, text
 from database import engine, Base
+from models import User, BugReport, Project, BugReportComment, BugReportCC
 import logging
 from typing import Dict, List
 import sqlite3
