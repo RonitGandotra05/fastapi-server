@@ -12,6 +12,8 @@ from sqlalchemy import event
 import asyncio
 from collections import defaultdict
 import time
+from sqlalchemy.orm import joinedload
+from models import BugReportCC
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -95,43 +97,31 @@ async def handle_message(message: dict, user: User, websocket: WebSocket, db: Se
             })
             return
 
-        # Prepare base message structure
-        base_message = {
-            "timestamp": datetime.utcnow().isoformat(),
-            "user": {
-                "id": user.id,
-                "name": user.name,
-                "email": user.email
-            }
-        }
-
         if message_type == "bug_report":
             # Handle bug report updates
             bug_id = message.get("payload", {}).get("bug_id")
             if bug_id:
-                bug = db.query(BugReport).get(bug_id)
+                bug = db.query(BugReport).options(
+                    joinedload(BugReport.creator),
+                    joinedload(BugReport.recipient),
+                    joinedload(BugReport.project),
+                    joinedload(BugReport.cc_recipients).joinedload(BugReportCC.cc_recipient)
+                ).get(bug_id)
                 if bug:
-                    await manager.broadcast({
-                        "type": "bug_report",
-                        "payload": {
-                            **base_message,
-                            "bug_report": {
-                                "id": bug.id,
-                                "description": bug.description,
-                                "status": bug.status,
-                                "severity": bug.severity,
-                                "project_name": bug.project.name if bug.project else None
-                            }
-                        }
-                    })
+                    await manager.broadcast_bug_report(bug, "updated")
 
         elif message_type == "comment":
             # Handle comment updates
             await manager.broadcast({
                 "type": "comment",
                 "payload": {
-                    **base_message,
-                    "comment": message.get("payload", {})
+                    "user": {
+                        "id": user.id,
+                        "name": user.name,
+                        "email": user.email
+                    },
+                    "comment": message.get("payload", {}),
+                    "timestamp": datetime.utcnow().isoformat()
                 }
             })
 
@@ -144,12 +134,19 @@ async def handle_message(message: dict, user: User, websocket: WebSocket, db: Se
                     await manager.broadcast({
                         "type": "project",
                         "payload": {
-                            **base_message,
+                            "user": {
+                                "id": user.id,
+                                "name": user.name,
+                                "email": user.email
+                            },
                             "project": {
                                 "id": project.id,
                                 "name": project.name,
-                                "description": project.description
-                            }
+                                "description": project.description,
+                                "created_at": project.created_at.isoformat() if project.created_at else None,
+                                "updated_at": project.updated_at.isoformat() if project.updated_at else None
+                            },
+                            "timestamp": datetime.utcnow().isoformat()
                         }
                     })
 
@@ -269,15 +266,10 @@ async def websocket_endpoint(websocket: WebSocket):
 # Set up database event listeners
 @event.listens_for(BugReport, 'after_insert')
 def bug_report_inserted(mapper, connection, target):
-    asyncio.create_task(manager.broadcast({
-        "type": "bug_report",
-        "payload": {
-            "event": "created",
-            "bug_report": {
-                "id": target.id,
-                "description": target.description,
-                "status": target.status,
-                "severity": target.severity
-            }
-        }
-    })) 
+    """Handle new bug report creation."""
+    asyncio.create_task(manager.broadcast_bug_report(target, "created"))
+
+@event.listens_for(BugReport, 'after_update')
+def bug_report_updated(mapper, connection, target):
+    """Handle bug report updates."""
+    asyncio.create_task(manager.broadcast_bug_report(target, "updated")) 

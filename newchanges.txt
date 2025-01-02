@@ -1,0 +1,96 @@
+Backend Changes Required for Complete Bug Report Data:
+
+1. WebSocket Event Payload Changes:
+   When sending the 'bug_report' event, include all fields in the payload:
+   ```python
+   async def broadcast_bug_report(bug_report: BugReport, event: str):
+       payload = {
+           "type": "bug_report",
+           "payload": {
+               "event": event,
+               "bug_report": {
+                   "id": bug_report.id,
+                   "description": bug_report.description,
+                   "status": bug_report.status,
+                   "severity": bug_report.severity,
+                   "image_url": bug_report.image_url,  # Add this
+                   "creator_id": bug_report.creator_id,  # Add this
+                   "creator": bug_report.creator,  # Add this
+                   "recipient_id": bug_report.recipient_id,  # Add this
+                   "recipient": bug_report.recipient,  # Add this
+                   "project_id": bug_report.project_id,  # Add this
+                   "project_name": bug_report.project_name,  # Add this
+                   "media_type": bug_report.media_type,  # Add this
+                   "modified_date": bug_report.modified_date.isoformat(),  # Add this
+                   "tab_url": bug_report.tab_url,  # Add this
+                   "cc_recipients": bug_report.cc_recipients  # Add this
+               }
+           }
+       }
+       await broadcast_message(json.dumps(payload))
+
+2. API Endpoint Changes:
+   In the upload endpoint (/upload), ensure all fields are being saved:
+   ```python
+   @router.post("/upload")
+   async def upload_bug_report(
+       file: UploadFile,
+       description: str,
+       recipient_id: str,
+       severity: str,
+       project_id: Optional[str] = None,
+       tab_url: Optional[str] = None,
+       cc_recipients: Optional[str] = None,
+       current_user: User = Depends(get_current_user)
+   ):
+       # Save image and get URL
+       image_url = await save_image(file)
+       
+       # Create bug report with all fields
+       bug_report = BugReport(
+           description=description,
+           image_url=image_url,  # Make sure this is saved
+           creator_id=current_user.id,
+           creator=current_user.name,
+           recipient_id=recipient_id if recipient_id != "None" else None,
+           recipient=await get_user_name(recipient_id) if recipient_id != "None" else None,
+           status="assigned",
+           severity=severity,
+           project_id=project_id,
+           project_name=await get_project_name(project_id) if project_id else None,
+           media_type=get_media_type(file.content_type),
+           modified_date=datetime.now(),
+           tab_url=tab_url,
+           cc_recipients=cc_recipients.split(",") if cc_recipients else []
+       )
+       
+       # Save to database
+       saved_bug_report = await save_bug_report(bug_report)
+       
+       # Broadcast complete bug report data via WebSocket
+       await broadcast_bug_report(saved_bug_report, "created")
+       
+       return saved_bug_report
+
+3. Database Schema Updates (if needed):
+   Ensure your database schema includes all necessary fields:
+   ```sql
+   ALTER TABLE bug_reports
+   ADD COLUMN IF NOT EXISTS media_type VARCHAR(50),
+   ADD COLUMN IF NOT EXISTS tab_url TEXT,
+   ADD COLUMN IF NOT EXISTS cc_recipients TEXT[];
+
+4. Implementation Steps:
+   a. Update the database schema if needed
+   b. Modify the bug report model to include all fields
+   c. Update the upload endpoint to save all fields
+   d. Modify the WebSocket broadcast function to include all fields
+   e. Test the changes by creating a new bug report and verifying the WebSocket payload
+
+5. Testing Checklist:
+   - Create a new bug report with an image
+   - Verify WebSocket payload contains all fields
+   - Check if frontend receives and displays the image
+   - Verify all fields are saved in the database
+   - Test with different file types (images, videos)
+   - Verify CC recipients are properly saved and broadcast 
