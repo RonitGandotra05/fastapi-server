@@ -947,3 +947,67 @@ async def get_image(image_name: str):
     except Exception as e:
         print(f"Error fetching image: {e}")
         return {"error": str(e)}, 500
+
+@router.get("/all_comments", response_model=List[BugReportCommentResponse])
+async def get_all_comments(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(RoleChecker(['user', 'admin']))
+):
+    """
+    Get all comments across all bug reports.
+    """
+    try:
+        # Get all comments with related bug report information
+        comments = (
+            db.query(BugReportComment)
+            .join(BugReport, BugReportComment.bug_report_id == BugReport.id)
+            .options(
+                joinedload(BugReportComment.bug_report)
+                .joinedload(BugReport.creator),
+                joinedload(BugReportComment.bug_report)
+                .joinedload(BugReport.recipient),
+                joinedload(BugReportComment.bug_report)
+                .joinedload(BugReport.project)
+            )
+            .order_by(BugReportComment.created_at.desc())
+            .all()
+        )
+
+        # Create a more detailed response
+        class DetailedCommentResponse(BugReportCommentResponse):
+            bug_report_description: str
+            bug_report_status: str
+            bug_report_severity: str
+            bug_report_creator: Optional[str]
+            bug_report_recipient: Optional[str]
+            project_name: Optional[str]
+
+            class Config:
+                from_attributes = True
+
+        detailed_comments = []
+        for comment in comments:
+            bug_report = comment.bug_report
+            detailed_comment = DetailedCommentResponse(
+                id=comment.id,
+                bug_report_id=comment.bug_report_id,
+                user_name=comment.user_name,
+                comment=comment.comment,
+                created_at=comment.created_at,
+                bug_report_description=bug_report.description if bug_report else "N/A",
+                bug_report_status=bug_report.status.value if bug_report else "N/A",
+                bug_report_severity=bug_report.severity.value if bug_report else "N/A",
+                bug_report_creator=bug_report.creator.name if bug_report and bug_report.creator else "N/A",
+                bug_report_recipient=bug_report.recipient.name if bug_report and bug_report.recipient else "N/A",
+                project_name=bug_report.project.name if bug_report and bug_report.project else "N/A"
+            )
+            detailed_comments.append(detailed_comment)
+
+        return detailed_comments
+
+    except Exception as e:
+        print(f"Error fetching all comments: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch comments: {str(e)}"
+        )
