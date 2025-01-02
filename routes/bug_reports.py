@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 import io
 from pydantic import BaseModel
 import logging
+from events import notify_bug_report_update, notify_comment_update
 
 router = APIRouter()
 
@@ -900,6 +901,26 @@ async def add_bug_report_comment(
         for result in notification_results:
             print(result)
             
+        # Get affected users (creator, recipient, CC recipients)
+        affected_users = {bug_report.creator_id, bug_report.recipient_id}
+        affected_users.update(cc.cc_recipient_id for cc in bug_report.cc_recipients)
+        affected_users.discard(None)  # Remove None values
+
+        # Notify via WebSocket
+        await notify_comment_update(
+            comment_id=new_comment.id,
+            bug_report_id=bug_id,
+            event_type="comment_created",
+            affected_users=affected_users,
+            data={
+                "id": new_comment.id,
+                "bug_report_id": bug_id,
+                "user_name": current_user.name,
+                "comment": comment_data.comment,
+                "created_at": new_comment.created_at.isoformat()
+            }
+        )
+
         return BugReportCommentResponse.from_comment(new_comment)
         
     except Exception as e:

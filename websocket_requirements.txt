@@ -1,0 +1,171 @@
+WebSocket Backend Requirements for BugZapp
+=====================================
+
+1. WebSocket Endpoint
+-------------------
+- Create a WebSocket endpoint at `/ws`
+- Require authentication via Bearer token in connection headers
+- Handle connection upgrades from HTTP to WebSocket
+
+2. Message Format
+---------------
+All messages should be in JSON format:
+{
+    "type": "bug_report|comment|project|user|all_users",
+    "payload": {
+        // The actual data object
+    }
+}
+
+3. Event Types and Payloads
+-------------------------
+a) Bug Report Updates (type: "bug_report")
+   Payload should match the BugReport model:
+   {
+       "id": int,
+       "description": string,
+       "creator": string,
+       "creator_id": int,
+       "recipient": string,
+       "recipient_id": int,
+       "status": string,
+       "severity": string,
+       "created_at": datetime,
+       "modified_at": datetime,
+       "project_name": string,
+       "project_id": int
+   }
+
+b) Comment Updates (type: "comment")
+   Payload should match the Comment model:
+   {
+       "id": int,
+       "bug_report_id": int,
+       "user_id": int,
+       "user_name": string,
+       "comment": string,
+       "created_at": datetime
+   }
+
+c) Project Updates (type: "project")
+   Payload should match the Project model:
+   {
+       "id": int,
+       "name": string,
+       "description": string,
+       "created_at": datetime
+   }
+
+d) User Updates (type: "user")
+   Payload should match the User model:
+   {
+       "id": int,
+       "name": string,
+       "email": string,
+       "phone": string,
+       "is_admin": boolean
+   }
+
+4. Event Triggers
+---------------
+Send WebSocket messages when:
+- A new bug report is created
+- A bug report is updated (status change, assignment change)
+- A bug report is deleted
+- A new comment is added
+- A comment is updated/deleted
+- A project is created/updated/deleted
+- A user is created/updated/deleted
+- Admin status changes
+- User assignments change
+
+5. Connection Management
+----------------------
+- Implement ping/pong mechanism (every 30 seconds)
+- Handle reconnection attempts from clients
+- Clean up resources when clients disconnect
+- Maintain active connections list
+- Handle authentication expiry
+
+6. Error Handling
+---------------
+Send error messages in format:
+{
+    "type": "error",
+    "payload": {
+        "code": string,
+        "message": string
+    }
+}
+
+Common error codes:
+- "auth_error": Authentication failed
+- "invalid_message": Invalid message format
+- "rate_limit": Too many messages
+- "server_error": Internal server error
+
+7. Rate Limiting
+--------------
+- Implement rate limiting per client
+- Suggested limits:
+  * Max 60 messages per minute per client
+  * Max 10 concurrent connections per user
+  * Max message size: 64KB
+
+8. Security Requirements
+---------------------
+- Validate all incoming messages
+- Sanitize data before broadcasting
+- Implement connection timeouts (e.g., 2 minutes without ping)
+- Close connections on authentication failures
+- Implement IP-based rate limiting
+- Log all connection attempts and errors
+
+9. Database Integration
+--------------------
+- Set up triggers or hooks to capture database changes
+- Ensure atomic operations when broadcasting changes
+- Implement efficient querying for real-time updates
+- Consider caching frequently accessed data
+
+10. Performance Considerations
+--------------------------
+- Implement message queuing for high-load situations
+- Set up load balancing for WebSocket connections
+- Monitor connection counts and message rates
+- Implement graceful degradation under heavy load
+- Consider implementing message batching for bulk updates
+
+11. Testing Requirements
+---------------------
+- Test concurrent connections
+- Test message delivery under load
+- Test reconnection scenarios
+- Test error handling
+- Test rate limiting
+- Test authentication expiry
+- Test all CRUD operations via WebSocket
+- Test large message payloads
+- Test connection stability
+
+12. Monitoring
+------------
+Implement monitoring for:
+- Active connections count
+- Message rates
+- Error rates
+- Connection durations
+- Authentication failures
+- Rate limit hits
+- Server resource usage
+
+13. Documentation
+--------------
+Provide documentation for:
+- WebSocket endpoint details
+- Authentication requirements
+- Message formats
+- Error codes and handling
+- Rate limits
+- Reconnection strategies
+- Example implementations 

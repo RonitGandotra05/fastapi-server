@@ -1,0 +1,171 @@
+WebSocket Event Triggers for BugZapp
+================================
+
+1. Bug Report Events
+------------------
+a) Creation Events:
+   - When a new bug report is created
+   - When screenshots/files are uploaded with bug reports
+   - When CC recipients are added to a bug report
+
+b) Status Change Events:
+   - When a bug report is marked as resolved
+   - When a bug report is marked as pending/assigned
+   - When a bug report's severity is updated
+   - When a bug report's description is modified
+
+c) Assignment Events:
+   - When a bug report is assigned to a new recipient
+   - When CC recipients are added/removed
+   - When a bug report is reassigned to a different user
+
+d) Project-Related Events:
+   - When a bug report is added to a project
+   - When a bug report is removed from a project
+   - When a bug report's project is changed
+
+e) Deletion Events:
+   - When a bug report is deleted
+   - When associated files/images are removed
+
+2. Comment Events
+---------------
+a) Basic Operations:
+   - When a new comment is added to a bug report
+   - When a comment is updated
+   - When a comment is deleted
+
+b) Notification Events:
+   - When comment notifications are sent to recipients
+   - When comment notifications are sent to CC recipients
+   - When comment notifications are sent to the bug creator
+
+3. Project Events
+---------------
+a) Project Management:
+   - When a new project is created
+   - When a project's details are updated
+   - When a project is deleted
+   - When bug reports are added to/removed from a project
+
+b) Project Statistics:
+   - When project bug count changes
+   - When project status distribution changes
+   - When project severity distribution changes
+
+4. User Events
+------------
+a) Account Management:
+   - When a new user is registered
+   - When a user's details are updated
+   - When a user is deleted
+   - When a user's password is reset
+   - When a user's admin status is toggled
+
+b) Authentication Events:
+   - When a user logs in
+   - When a user logs out
+   - When authentication fails
+   - When OTP is generated for password reset
+
+5. Reminder Events
+----------------
+- When a reminder is sent for a bug report
+- When reminder notifications are delivered
+- When reminder notifications fail
+
+6. System Events
+--------------
+a) Error Events:
+   - When file uploads fail
+   - When notifications fail to send
+   - When database operations fail
+   - When authentication errors occur
+
+b) Performance Events:
+   - When rate limits are hit
+   - When connection limits are reached
+   - When message size limits are exceeded
+
+7. Notification Events
+-------------------
+a) WhatsApp Notifications:
+   - When bug report notifications are sent
+   - When comment notifications are sent
+   - When reminder notifications are sent
+   - When registration credentials are sent
+   - When OTP messages are sent
+
+b) Notification Status:
+   - When notifications are delivered successfully
+   - When notifications fail to deliver
+   - When notifications are pending
+
+8. Statistics Events
+-----------------
+a) Bug Report Statistics:
+   - When total bug count changes
+   - When resolved bug count changes
+   - When pending bug count changes
+   - When severity distribution changes
+
+b) User Statistics:
+   - When user activity metrics change
+   - When user assignment counts change
+   - When user resolution rates change
+
+9. Search and Filter Events
+------------------------
+- When search results are updated
+- When filters are applied/changed
+- When sorting criteria change
+
+10. Batch Operation Events
+-----------------------
+- When multiple bug reports are updated
+- When multiple users are modified
+- When bulk notifications are sent
+- When batch processes complete/fail
+
+Event Message Format Example:
+---------------------------
+{
+    "type": "bug_report_status",
+    "payload": {
+        "event": "status_change",
+        "bug_id": 123,
+        "old_status": "assigned",
+        "new_status": "resolved",
+        "changed_by": {
+            "id": 456,
+            "name": "John Doe"
+        },
+        "timestamp": "2024-01-20T14:30:00Z",
+        "notifications": {
+            "sent_to": ["creator", "recipient", "cc_users"],
+            "failed_for": []
+        }
+    }
+}
+
+Implementation Notes:
+-------------------
+1. Each event should include:
+   - Timestamp of the event
+   - User who triggered the event
+   - Affected entities (IDs and relevant data)
+   - Status of related operations (success/failure)
+   - Notification status if applicable
+
+2. Events should be:
+   - Atomic (one event per change)
+   - Ordered (maintain sequence)
+   - Reliable (guaranteed delivery)
+   - Secure (authenticated and authorized)
+
+3. Event handlers should:
+   - Update UI in real-time
+   - Maintain data consistency
+   - Handle errors gracefully
+   - Log important changes
+   - Manage state updates efficiently 

@@ -90,3 +90,24 @@ def RoleChecker(roles: List[str]):
             print("❌ Access denied: Insufficient permissions")
             raise HTTPException(status_code=403, detail="Access forbidden")
     return role_checker
+
+def verify_token(token: str) -> dict:
+    """
+    Verify a JWT token and return its payload.
+    
+    Args:
+        token (str): The JWT token to verify
+        
+    Returns:
+        dict: The decoded token payload
+        
+    Raises:
+        JWTError: If token is invalid
+    """
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("sub") is None:
+            raise JWTError("Invalid token payload")
+        return payload
+    except JWTError as e:
+        raise JWTError(f"Invalid token: {str(e)}")

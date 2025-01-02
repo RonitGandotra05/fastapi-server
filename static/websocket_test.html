@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .message { margin: 10px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        .error { color: red; }
+        .success { color: green; }
+        input[type="text"], select { padding: 5px; margin-right: 10px; }
+        button { padding: 5px 10px; margin-right: 5px; }
+        .help-text { color: #666; font-size: 0.9em; margin-top: 5px; }
+        .message-input { margin-top: 20px; display: none; }
+        .message-input textarea { width: 100%; height: 60px; margin-bottom: 10px; padding: 5px; }
+        .sent { background-color: #e3f2fd; }
+        .received { background-color: #f5f5f5; }
+        .timestamp { font-size: 0.8em; color: #666; }
+        .message-type { font-weight: bold; color: #333; }
+        .payload-input { margin-top: 10px; }
+        .payload-input label { display: block; margin-bottom: 5px; }
+        .payload-input input { width: 100%; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <h2>WebSocket Test Client</h2>
+    
+    <div>
+        <label>Auth Token:</label>
+        <input type="text" id="token" style="width: 500px;" placeholder="Paste your token here">
+        <button onclick="connect()">Connect</button>
+        <button onclick="disconnect()">Disconnect</button>
+        <div class="help-text">Paste just the JWT token value (e.g., eyJhbGci...)</div>
+    </div>
+
+    <div id="status" style="margin-top: 10px;"></div>
+    
+    <div id="message-input" class="message-input">
+        <h3>Send Test Message:</h3>
+        <select id="message-type" onchange="updatePayloadFields()">
+            <option value="bug_report">Bug Report Update</option>
+            <option value="comment">Comment Update</option>
+            <option value="project">Project Update</option>
+        </select>
+
+        <div id="payload-fields" class="payload-input">
+            <!-- Dynamic fields will be inserted here -->
+        </div>
+
+        <button onclick="sendMessage()">Send Message</button>
+    </div>
+
+    <div id="messages" style="margin-top: 20px;">
+        <h3>Messages:</h3>
+        <button onclick="clearMessages()">Clear Messages</button>
+    </div>
+
+    <script>
+        let ws = null;
+        let pingInterval;
+        let connectedUser = null;
+
+        const payloadTemplates = {
+            bug_report: {
+                bug_id: { type: 'number', label: 'Bug Report ID' },
+                status: { 
+                    type: 'select', 
+                    label: 'Status',
+                    options: ['pending', 'assigned', 'in_progress', 'resolved', 'closed']
+                },
+                severity: {
+                    type: 'select',
+                    label: 'Severity',
+                    options: ['low', 'medium', 'high', 'critical']
+                }
+            },
+            comment: {
+                bug_report_id: { type: 'number', label: 'Bug Report ID' },
+                comment: { type: 'text', label: 'Comment Text' }
+            },
+            project: {
+                project_id: { type: 'number', label: 'Project ID' }
+            }
+        };
+
+        function updatePayloadFields() {
+            const messageType = document.getElementById('message-type').value;
+            const fieldsContainer = document.getElementById('payload-fields');
+            fieldsContainer.innerHTML = '';
+
+            const template = payloadTemplates[messageType];
+            if (template) {
+                for (const [key, config] of Object.entries(template)) {
+                    const label = document.createElement('label');
+                    label.textContent = config.label;
+                    fieldsContainer.appendChild(label);
+
+                    if (config.type === 'select') {
+                        const select = document.createElement('select');
+                        select.id = `payload-${key}`;
+                        config.options.forEach(option => {
+                            const opt = document.createElement('option');
+                            opt.value = option;
+                            opt.textContent = option.replace(/_/g, ' ').toUpperCase();
+                            select.appendChild(opt);
+                        });
+                        fieldsContainer.appendChild(select);
+                    } else {
+                        const input = document.createElement('input');
+                        input.type = config.type === 'number' ? 'number' : 'text';
+                        input.id = `payload-${key}`;
+                        input.placeholder = `Enter ${config.label}`;
+                        fieldsContainer.appendChild(input);
+                    }
+                }
+            }
+        }
+
+        function setStatus(message, isError = false) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.style.color = isError ? 'red' : 'green';
+            
+            document.getElementById('message-input').style.display = 
+                (!isError && message.includes('Connected')) ? 'block' : 'none';
+            
+            if (!isError && message.includes('Connected')) {
+                updatePayloadFields();
+            }
+        }
+
+        function formatMessage(message) {
+            if (typeof message === 'string') return message;
+            
+            let formatted = '';
+            if (message.type) {
+                formatted += `Type: ${message.type}\n`;
+            }
+            if (message.payload) {
+                formatted += 'Payload:\n' + JSON.stringify(message.payload, null, 2);
+            }
+            return formatted;
+        }
+
+        function addMessage(message, type = 'received') {
+            const messagesDiv = document.getElementById('messages');
+            const messageElement = document.createElement('div');
+            messageElement.className = `message ${type}`;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const timestampDiv = document.createElement('div');
+            timestampDiv.className = 'timestamp';
+            timestampDiv.textContent = timestamp;
+            
+            const contentDiv = document.createElement('pre');
+            contentDiv.textContent = formatMessage(message);
+            
+            messageElement.appendChild(timestampDiv);
+            messageElement.appendChild(contentDiv);
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function clearMessages() {
+            const messagesDiv = document.getElementById('messages');
+            while (messagesDiv.childNodes.length > 2) {
+                messagesDiv.removeChild(messagesDiv.lastChild);
+            }
+        }
+
+        function extractToken(input) {
+            input = input.trim();
+            if (input.startsWith('eyJ')) return input;
+            const match = input.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
+            return match ? match[0] : input.replace(/^["']|["']$/g, '');
+        }
+
+        function getPayloadData() {
+            const messageType = document.getElementById('message-type').value;
+            const template = payloadTemplates[messageType];
+            const payload = {};
+            
+            for (const key of Object.keys(template)) {
+                const element = document.getElementById(`payload-${key}`);
+                if (element) {
+                    const value = element.type === 'number' ? 
+                        parseInt(element.value) : element.value;
+                    payload[key] = value;
+                }
+            }
+            
+            return payload;
+        }
+
+        function sendMessage() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                setStatus('Not connected to WebSocket', true);
+                return;
+            }
+
+            const messageType = document.getElementById('message-type').value;
+            const payload = getPayloadData();
+
+            const message = {
+                type: messageType,
+                payload: payload,
+                timestamp: new Date().toISOString()
+            };
+
+            try {
+                ws.send(JSON.stringify(message));
+                addMessage(message, 'sent');
+            } catch (error) {
+                console.error('Error sending message:', error);
+                setStatus('Failed to send message: ' + error.message, true);
+            }
+        }
+
+        function connect() {
+            const rawToken = document.getElementById('token').value;
+            if (!rawToken) {
+                setStatus('Please enter an auth token', true);
+                return;
+            }
+
+            const token = extractToken(rawToken);
+            if (!token.startsWith('eyJ')) {
+                setStatus('Invalid token format. Please paste a valid JWT token', true);
+                return;
+            }
+
+            try {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+                console.log('Connecting to:', wsUrl);
+
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    setStatus('Connected to WebSocket');
+                    addMessage('Connection established', 'success');
+                    pingInterval = setInterval(() => {
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'ping' }));
+                        }
+                    }, 30000);
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        addMessage(data, 'received');
+                    } catch (e) {
+                        addMessage('Received: ' + event.data, 'received');
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket Error:', error);
+                    setStatus('WebSocket Error', true);
+                    addMessage('Error occurred', 'error');
+                };
+
+                ws.onclose = (event) => {
+                    console.log('WebSocket closed:', event);
+                    setStatus('WebSocket Disconnected', true);
+                    clearInterval(pingInterval);
+                    addMessage(`Connection closed (${event.code}: ${event.reason || 'No reason provided'})`, 'error');
+                };
+            } catch (error) {
+                console.error('Connection error:', error);
+                setStatus('Failed to connect: ' + error.message, true);
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                clearInterval(pingInterval);
+                setStatus('Manually Disconnected');
+            }
+        }
+
+        // Initialize payload fields
+        updatePayloadFields();
+    </script>
+</body>
+</html>
