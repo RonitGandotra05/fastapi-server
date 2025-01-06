@@ -9,13 +9,14 @@ from utils import send_media_with_caption, send_text_message
 import boto3
 import uuid
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import aiohttp
 from fastapi.responses import StreamingResponse
 import io
 from pydantic import BaseModel
 import logging
 from events import notify_bug_report_update, notify_comment_update
+import pytz
 
 router = APIRouter()
 
@@ -671,8 +672,8 @@ async def send_bug_report_reminder(
         if not current_user.is_admin and bug_report.creator_id != current_user.id:
             raise HTTPException(status_code=403, detail="Only admins or the bug report creator can send reminders")
 
-        # Format the modified date
-        modified_date = bug_report.modified_date
+        # Convert UTC to IST by adding 5 hours and 30 minutes
+        modified_date = bug_report.modified_date + timedelta(hours=5, minutes=30)
         formatted_date = modified_date.strftime("%d %B %I:%M %p")  # e.g., "17 December 10:30 PM"
 
         notifications_sent = []
@@ -687,7 +688,7 @@ async def send_bug_report_reminder(
             f"*Reminder: Update Required*\n"
             f"━━━━━━━━━━━━━━━━\n\n"
             f"Hello {bug_report.recipient.name},\n\n"
-            f"This is a reminder about a bug report assigned to you on {formatted_date}.\n\n"
+            f"This is a reminder about a bug report assigned to you on {formatted_date} IST.\n\n"
             f"Could you please provide an update on its status on the following link: {bug_link}\n\n"
             f"*Bug Report Details*\n"
             f"━━━━━━━━━━━━━━━━\n\n"
@@ -735,7 +736,7 @@ async def send_bug_report_reminder(
                     f"*Severity:*\n{bug_report.severity.value}\n\n"
                     f"*Status:*\n{bug_report.status.value}\n\n"
                     f"*Project:*\n{bug_report.project.name if bug_report.project else 'No Project'}\n\n"
-                    f"*Originally Assigned:*\n{formatted_date}"
+                    f"*Originally Assigned:*\n{formatted_date} IST"
                 )
                 try:
                     await send_media_with_caption(
@@ -752,13 +753,15 @@ async def send_bug_report_reminder(
                         "error": str(e)
                     })
 
+        # Get current time in IST
+        current_time_ist = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
         response = {
             "message": "Reminder sent",
             "notifications_sent": notifications_sent,
             "failed_notifications": failed_notifications,
             "bug_report_id": bug_report.id,
             "requested_by": current_user.name,
-            "timestamp": datetime.utcnow().strftime("%d %B %I:%M %p")
+            "timestamp": current_time_ist.strftime("%d %B %I:%M %p IST")
         }
 
         if failed_notifications:
