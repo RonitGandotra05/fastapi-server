@@ -16,7 +16,6 @@ import io
 from pydantic import BaseModel
 import logging
 from events import notify_bug_report_update, notify_comment_update
-import pytz
 
 router = APIRouter()
 
