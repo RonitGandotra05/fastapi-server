@@ -168,10 +168,26 @@ async def upload_screenshot(
         try:
             file_content = await file.read()
             file_size = len(file_content)
-            file_extension = os.path.splitext(file.filename)[1].lower()
-            file_name = f"screenshot-{uuid.uuid4()}{file_extension}"
             
-            print(f"Uploading file: {file_name} (size: {file_size} bytes)")
+            # Get the correct file extension from the original filename
+            original_extension = os.path.splitext(file.filename)[1].lower()
+            
+            # Determine media type and extension
+            if 'video' in file.content_type:
+                media_type = 'video'
+                # If no extension, default to .mp4 for videos
+                if not original_extension:
+                    original_extension = '.mp4'
+            else:
+                media_type = 'image'
+                # If no extension, default to .png for images
+                if not original_extension:
+                    original_extension = '.png'
+            
+            # Generate unique filename with correct extension
+            file_name = f"screenshot-{uuid.uuid4()}{original_extension}"
+            
+            print(f"Uploading file: {file_name} (size: {file_size} bytes, type: {file.content_type})")
             
             s3_client.put_object(
                 Bucket=AWS_BUCKET_NAME,
@@ -190,7 +206,7 @@ async def upload_screenshot(
         # Determine media type
         allowed_video_extensions = ['.mp4', '.mov', '.3gp']
         media_type = 'video' if 'video' in file.content_type else 'image'
-        if media_type == 'video' and (file_size > 16 * 1024 * 1024 or file_extension not in allowed_video_extensions):
+        if media_type == 'video' and (file_size > 16 * 1024 * 1024 or original_extension not in allowed_video_extensions):
             media_type = 'video_link'
         print(f"Media type determined: {media_type}")
 

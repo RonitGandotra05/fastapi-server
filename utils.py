@@ -2,6 +2,7 @@ import logging
 import os
 import requests
 from typing import Optional
+import aiohttp
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +16,7 @@ async def send_media_with_caption(
     media_type: str = "image",
     tab_url: Optional[str] = None
 ):
-    logger.info(f"Starting send_media_with_caption: phone={phone_number}, media_url={media_url or media_link}")
+    logger.info(f"Starting send_media_with_caption: phone={phone_number}, media_url={media_url or media_link}, type={media_type}")
     
     if not media_url and not media_link:
         logger.info("No media URL, falling back to text message")
@@ -24,15 +25,41 @@ async def send_media_with_caption(
     token = os.getenv('ULTRAMSG_API_TOKEN')
     logger.info(f"Token retrieved: {token[:4]}..." if token else "No token found!")
 
-    url = "https://api.ultramsg.com/instance29265/messages/image"
+    # Check file size if it's a video
+    file_size_mb = 0
+    if media_type == 'video':
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.head(media_url or media_link) as response:
+                    file_size = int(response.headers.get('Content-Length', 0))
+                    file_size_mb = file_size / (1024 * 1024)  # Convert to MB
+                    logger.info(f"Video file size: {file_size_mb:.2f} MB")
+        except Exception as e:
+            logger.error(f"Error checking file size: {str(e)}")
+            file_size_mb = 16  # Default to large size to trigger link sharing
+
+    # For videos larger than 15MB, send as a link in the message
+    if media_type == 'video' and file_size_mb > 15:
+        logger.info("Video larger than 15MB, sending as link in message")
+        message = (
+            f"{caption}\n\n"
+            f"*Video Link:*\n{media_url or media_link}"
+            + (f"\n\n*Tab URL:*\n{tab_url}" if tab_url else "")
+        )
+        return await send_text_message(phone_number, message)
+
+    # Determine the correct endpoint based on media type
+    endpoint = "image" if media_type == "image" else "video"
+    url = f"https://api.ultramsg.com/instance29265/messages/{endpoint}"
+
     payload = {
         "token": token,
         "to": f"{phone_number}@c.us",
-        "image": media_url or media_link,
+        endpoint: media_url or media_link,
         "caption": caption
     }
     
-    logger.info(f"Sending request to: {url}")
+    logger.info(f"Sending {media_type} to: {url}")
     logger.info(f"With payload: {payload}")
 
     try:
