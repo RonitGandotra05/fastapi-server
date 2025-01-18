@@ -114,86 +114,74 @@ async def upload_screenshot(
     db: Session = Depends(get_db),
     current_user: User = Depends(RoleChecker(['user', 'admin']))
 ):
+    """
+    Upload a bug report with media (image or video).
+    Supported video formats: mp4, mov, 3gp
+    Maximum video size: 16MB
+    """
     try:
-        logging.info(f"Processing bug report upload for recipient: {recipient_name}")
+        print("\n=== ROLE CHECK ===")
+        print(f"Required Roles: ['user', 'admin']")
+        print(f"User: {current_user.name}")
+        print(f"User Roles: {'admin' if current_user.is_admin else 'user'}")
+
+        # Validate file type
+        content_type = file.content_type.lower()
+        allowed_image_types = ["image/png", "image/jpeg", "image/jpg", "image/gif"]
+        allowed_video_types = ["video/mp4", "video/quicktime", "video/3gpp"]  # mov is video/quicktime
         
-        # Handle main recipient
-        recipient_user = None
-        recipient_id = None
+        if content_type not in allowed_image_types + allowed_video_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type. Allowed types: PNG, JPEG, JPG, GIF, MP4, MOV, 3GP"
+            )
+
+        # Get file extension
+        file_extension = os.path.splitext(file.filename)[1].lower()
+        if not file_extension:
+            # Set default extension based on content type
+            if content_type in allowed_video_types:
+                file_extension = '.mp4' if 'mp4' in content_type else '.mov' if 'quicktime' in content_type else '.3gp'
+            else:
+                file_extension = '.png'
+
+        # Check file size for videos (16MB limit)
+        file_content = await file.read()
+        file_size = len(file_content)
+        
+        if content_type in allowed_video_types and file_size > 16 * 1024 * 1024:  # 16MB
+            raise HTTPException(
+                status_code=400,
+                detail="Video file size must be less than 16MB"
+            )
+
+        # Find recipient
+        recipient = None
         if recipient_name:
-            recipient_user = db.query(User).filter(User.name == recipient_name).first()
-            if not recipient_user:
-                raise HTTPException(status_code=404, detail=f"Recipient user '{recipient_name}' not found")
-            recipient_id = recipient_user.id
-            print(f"Main recipient found: {recipient_user.name} (ID: {recipient_user.id})")
+            recipient = db.query(User).filter(User.name == recipient_name).first()
+            if not recipient:
+                raise HTTPException(status_code=404, detail=f"Recipient {recipient_name} not found")
+            print(f"Main recipient found: {recipient.name} (ID: {recipient.id})")
 
-        # Handle CC recipients
-        cc_recipient_users = []
-        if cc_recipients:
-            print(f"Processing CC recipients: {cc_recipients}")
-            cc_names = [name for name in cc_recipients.split(',') if name]
-            
-            if len(cc_names) > 4:
-                raise HTTPException(status_code=400, detail="Maximum 4 CC recipients allowed")
-            
-            for cc_name in cc_names:
-                print(f"Looking up CC recipient: {cc_name}")
-                cc_user = db.query(User).filter(User.name == cc_name).first()
-                
-                if not cc_user:
-                    raise HTTPException(status_code=404, detail=f"CC recipient '{cc_name}' not found")
-                if recipient_id and cc_user.id == recipient_id:
-                    raise HTTPException(status_code=400, detail=f"Main recipient '{cc_name}' cannot be CC recipient")
-                if any(existing_cc.id == cc_user.id for existing_cc in cc_recipient_users):
-                    raise HTTPException(status_code=400, detail=f"Duplicate CC recipient: {cc_name}")
-                
-                cc_recipient_users.append(cc_user)
-                print(f"Added CC recipient: {cc_user.name} (ID: {cc_user.id})")
-
-        # Handle project
+        # Find project
         project = None
         if project_id:
             project = db.query(Project).filter(Project.id == project_id).first()
-            if not project:
-                raise HTTPException(status_code=404, detail=f"Project with ID {project_id} not found")
-            print(f"Project found: {project.name} (ID: {project.id})")
-
-        # Handle severity
-        try:
-            severity_level = SeverityLevel(severity) if severity else SeverityLevel.low
-        except ValueError:
-            raise HTTPException(status_code=400, detail=f"Invalid severity level: {severity}")
+            if project:
+                print(f"Project found: {project.name} (ID: {project.id})")
 
         # File upload to S3
         try:
-            file_content = await file.read()
-            file_size = len(file_content)
-            
-            # Get the correct file extension from the original filename
-            original_extension = os.path.splitext(file.filename)[1].lower()
-            
-            # Determine media type and extension
-            if 'video' in file.content_type:
-                media_type = 'video'
-                # If no extension, default to .mp4 for videos
-                if not original_extension:
-                    original_extension = '.mp4'
-            else:
-                media_type = 'image'
-                # If no extension, default to .png for images
-                if not original_extension:
-                    original_extension = '.png'
-            
             # Generate unique filename with correct extension
-            file_name = f"screenshot-{uuid.uuid4()}{original_extension}"
+            file_name = f"screenshot-{uuid.uuid4()}{file_extension}"
             
-            print(f"Uploading file: {file_name} (size: {file_size} bytes, type: {file.content_type})")
+            print(f"Uploading file: {file_name} (size: {file_size} bytes, type: {content_type})")
             
             s3_client.put_object(
                 Bucket=AWS_BUCKET_NAME,
                 Key=file_name,
                 Body=file_content,
-                ContentType=file.content_type
+                ContentType=content_type
             )
 
             image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{file_name}"
@@ -204,129 +192,138 @@ async def upload_screenshot(
             raise HTTPException(status_code=500, detail="Failed to upload file to S3")
 
         # Determine media type
-        allowed_video_extensions = ['.mp4', '.mov', '.3gp']
-        media_type = 'video' if 'video' in file.content_type else 'image'
-        if media_type == 'video' and (file_size > 16 * 1024 * 1024 or original_extension not in allowed_video_extensions):
+        media_type = 'video' if content_type in allowed_video_types else 'image'
+        if media_type == 'video' and file_size > 15 * 1024 * 1024:  # Videos > 15MB will be sent as links
             media_type = 'video_link'
+
         print(f"Media type determined: {media_type}")
 
         # Create bug report
-        try:
-            bug_report = BugReport(
-                image_url=image_url,
-                description=description,
-                recipient_id=recipient_id,
-                creator_id=current_user.id,
-                project_id=project.id if project else None,
-                status=BugStatus.assigned,
-                media_type=media_type or 'image',
-                severity=severity_level,
-                tab_url=tab_url,
-                modified_date=datetime.now(timezone.utc),
-            )
-            
-            db.add(bug_report)
-            db.flush()  # Get the bug report ID
-            print(f"Bug report created with ID: {bug_report.id}")
+        bug_report = BugReport(
+            image_url=image_url,
+            description=description,
+            recipient_id=recipient.id if recipient else None,
+            creator_id=current_user.id,
+            status=BugStatus.assigned,
+            media_type=media_type,
+            modified_date=datetime.now(timezone.utc),
+            severity=SeverityLevel(severity) if severity else SeverityLevel.low,
+            project_id=project.id if project else None,
+            tab_url=tab_url
+        )
+        
+        db.add(bug_report)
+        db.commit()
+        db.refresh(bug_report)
+        print(f"Bug report created with ID: {bug_report.id}")
 
-            # Add CC recipients
-            for cc_user in cc_recipient_users:
+        # Process CC recipients
+        if cc_recipients:
+            cc_names = [name.strip() for name in cc_recipients.split(',') if name]
+            
+            # Validate CC recipient count
+            if len(cc_names) > 4:
+                raise HTTPException(status_code=400, detail="Maximum 4 CC recipients allowed")
+            
+            cc_recipient_users = []  # Keep track of added CC recipients
+            for cc_name in cc_names:
+                cc_user = db.query(User).filter(User.name == cc_name).first()
+                if not cc_user:
+                    raise HTTPException(status_code=404, detail=f"CC recipient '{cc_name}' not found")
+                
+                # Check if CC recipient is the main recipient
+                if recipient and cc_user.id == recipient.id:
+                    raise HTTPException(status_code=400, detail=f"Main recipient '{cc_name}' cannot be CC recipient")
+                
+                # Check for duplicate CC recipients
+                if any(existing_cc.id == cc_user.id for existing_cc in cc_recipient_users):
+                    raise HTTPException(status_code=400, detail=f"Duplicate CC recipient: {cc_name}")
+                
+                cc_recipient_users.append(cc_user)
                 cc_entry = BugReportCC(
                     bug_report_id=bug_report.id,
                     cc_recipient_id=cc_user.id
                 )
                 db.add(cc_entry)
-                print(f"Added CC entry for user: {cc_user.name}")
-
+                print(f"Added CC recipient: {cc_user.name} (ID: {cc_user.id})")
             db.commit()
-            db.refresh(bug_report)
 
-        except Exception as e:
-            db.rollback()
-            print(f"Database error: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to create bug report: {str(e)}")
+        # Send WhatsApp notification to recipient
+        if recipient and recipient.phone:
+            print(f"Sending WhatsApp notification to: {recipient.phone}")
+            caption = (
+                f"*New Bug Report*\n"
+                f"━━━━━━━━━━━━━━━━\n\n"
+                f"Hello {recipient.name},\n\n"
+                f"You have been assigned a new bug report by {current_user.name}.\n\n"
+                f"*Description:*\n{description}\n\n"
+                f"*Severity:*\n{severity}\n\n"
+                f"*Project:*\n{project.name if project else 'No Project'}\n\n"
+                f"*CC Recipients:*\n{cc_recipients if cc_recipients else 'None'}"
+            )
+            await send_media_with_caption(
+                phone_number=recipient.phone,
+                media_url=image_url,
+                caption=caption,
+                media_type=media_type,
+                tab_url=tab_url
+            )
+            print("WhatsApp notification sent successfully")
 
-        # Send notifications
-        try:
-            # Notify main recipient
-            if recipient_user and recipient_user.phone:
-                logging.info(f"Sending WhatsApp notification to: {recipient_user.phone}")
-                try:
-                    caption = (
-                        f"*New Bug Report*\n"
+        # Send notifications to CC recipients
+        if cc_recipients:
+            cc_names = [name.strip() for name in cc_recipients.split(',')]
+            for cc_name in cc_names:
+                cc_user = db.query(User).filter(User.name == cc_name).first()
+                if cc_user and cc_user.phone:
+                    cc_caption = (
+                        f"*CC: New Bug Report*\n"
                         f"━━━━━━━━━━━━━━━━\n\n"
-                        f"Hello {recipient_user.name},\n\n"
-                        f"You have been assigned a new bug report by {current_user.name}.\n\n"
+                        f"Hello {cc_user.name},\n\n"
+                        f"You have been CC'd on a new bug report.\n\n"
+                        f"*Assigned to:* {recipient.name if recipient else 'Unassigned'}\n\n"
                         f"*Description:*\n{description}\n\n"
-                        f"*Severity:*\n{severity_level.value}\n\n"
+                        f"*Severity:*\n{severity}\n\n"
                         f"*Project:*\n{project.name if project else 'No Project'}\n\n"
-                        f"*CC Recipients:*\n"
-                        f"{', '.join(cc_user.name for cc_user in cc_recipient_users) if cc_recipient_users else 'None'}"
-                        + (f"\n\n*Tab URL:*\n{tab_url}" if tab_url else "")
+                        f"*Created by:*\n{current_user.name}"
                     )
                     await send_media_with_caption(
-                        phone_number=recipient_user.phone,
+                        phone_number=cc_user.phone,
                         media_url=image_url,
-                        caption=caption,
+                        caption=cc_caption,
                         media_type=media_type,
                         tab_url=tab_url
                     )
-                    logging.info("WhatsApp notification sent successfully")
-                except Exception as e:
-                    logging.error(f"Failed to send WhatsApp notification: {str(e)}")
 
-            # Notify CC recipients
-            if cc_recipient_users and recipient_user:
-                cc_caption = (
-                    f"*CC: New Bug Report*\n"
-                    f"━━━━━━━━━━━━━━━\n\n"
-                    f"Hello {cc_user.name},\n\n"
-                    f"You have been CC'd on a new bug report.\n\n"
-                    f"*Assigned To:*\n{recipient_user.name}\n\n"
-                    f"*Created By:*\n{current_user.name}\n\n"
-                    f"*Description:*\n{description}\n\n"
-                    f"*Severity:*\n{severity_level.value}\n\n"
-                    f"*Project:*\n{project.name if project else 'No Project'}"
-                    + (f"\n\n*Tab URL:*\n{tab_url}" if tab_url else "")
-                )
-                
-                for cc_user in cc_recipient_users:
-                    if cc_user.phone:
-                        await send_media_with_caption(
-                            phone_number=cc_user.phone,
-                            media_url=image_url,
-                            caption=cc_caption,
-                            media_type=media_type,
-                            tab_url=tab_url
-                        )
-                        print(f"Notification sent to CC recipient: {cc_user.name}")
-
-        except Exception as e:
-            print(f"Notification error: {str(e)}")
-            # Don't raise an exception here, as the bug report was already created successfully
+        # Broadcast the update via WebSocket
+        await notify_bug_report_update(
+            bug_report.id,
+            "created",
+            {recipient.id} if recipient else set(),
+            {"description": description},
+            db
+        )
 
         return {
             "message": "Upload successful",
             "id": bug_report.id,
             "url": image_url,
             "description": description,
-            "recipient": recipient_user.name if recipient_user else None,
-            "cc_recipients": [cc_user.name for cc_user in cc_recipient_users],
-            "severity": severity_level.value,
+            "recipient": recipient_name,
+            "cc_recipients": cc_recipients.split(',') if cc_recipients else [],
+            "severity": severity,
             "project_name": project.name if project else None,
             "tab_url": tab_url,
             "media_type": media_type
         }
 
-    except HTTPException as he:
-        # Re-raise HTTP exceptions
-        raise he
+    except HTTPException:
+        raise
     except Exception as e:
-        # Log unexpected errors
-        print(f"Unexpected error: {str(e)}")
+        print(f"Unexpected error in upload_screenshot: {str(e)}")
         import traceback
         print(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.get("/bug_reports/{bug_id}", response_model=BugReportResponse)
 async def read_bug_report(
