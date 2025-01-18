@@ -48,22 +48,38 @@ async def send_media_with_caption(
         )
         return await send_text_message(phone_number, message)
 
-    # Determine the correct endpoint based on media type
-    endpoint = "image" if media_type == "image" else "video"
-    url = f"https://api.ultramsg.com/instance29265/messages/{endpoint}"
-
-    payload = {
-        "token": token,
-        "to": f"{phone_number}@c.us",
-        endpoint: media_url or media_link,
-        "caption": caption
-    }
+    # Determine the correct endpoint and payload based on media type
+    if media_type == 'video':
+        url = "https://api.ultramsg.com/instance29265/messages/video"
+        payload = {
+            "token": token,
+            "to": f"{phone_number}@c.us",
+            "video": media_url or media_link,
+            "caption": caption
+        }
+    else:
+        url = "https://api.ultramsg.com/instance29265/messages/image"
+        payload = {
+            "token": token,
+            "to": f"{phone_number}@c.us",
+            "image": media_url or media_link,
+            "caption": caption
+        }
     
     logger.info(f"Sending {media_type} to: {url}")
     logger.info(f"With payload: {payload}")
 
     try:
-        response = requests.post(url, json=payload, headers={"Content-Type": "application/json"})
+        # Convert payload to URL-encoded format for videos
+        if media_type == 'video':
+            headers = {'content-type': 'application/x-www-form-urlencoded'}
+            # Convert payload to URL-encoded string
+            payload_str = "&".join(f"{key}={value}" for key, value in payload.items())
+            response = requests.post(url, data=payload_str, headers=headers)
+        else:
+            # Keep JSON format for images
+            response = requests.post(url, json=payload, headers={"Content-Type": "application/json"})
+
         logger.info(f"Response status: {response.status_code}")
         logger.info(f"Response content: {response.text}")
         response.raise_for_status()
