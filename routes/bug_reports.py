@@ -16,7 +16,6 @@ import io
 from pydantic import BaseModel
 import logging
 from events import notify_bug_report_update, notify_comment_update
-import ffmpeg
 from tempfile import NamedTemporaryFile
 
 router = APIRouter()
@@ -142,58 +141,14 @@ async def upload_screenshot(
         content = await file.read()
         size_mb = len(content) / (1024 * 1024)  # Convert to MB
         
-        print(f"Video size: {size_mb:.2f}MB")
+        print(f"File size: {size_mb:.2f}MB")
         
-        # Initialize media_type based on content type
+        # Initialize media_type based on content type and size
         media_type = 'video' if file.content_type.startswith('video/') else 'image'
-        
-        if size_mb > 15 and file.content_type.startswith('video/'):
-            print(f"Large video detected ({size_mb:.2f}MB). Attempting compression...")
-            
-            try:
-                # Create temporary files for input and output
-                with NamedTemporaryFile(suffix=os.path.splitext(file.filename)[1], delete=False) as temp_in, \
-                     NamedTemporaryFile(suffix='.mp4', delete=False) as temp_out:
-                    
-                    # Write original video to temp file
-                    temp_in.write(content)
-                    temp_in.flush()
-                    
-                    # Compress video using ffmpeg
-                    stream = ffmpeg.input(temp_in.name)
-                    stream = ffmpeg.output(stream, temp_out.name, 
-                        vcodec='libx264',
-                        acodec='aac',
-                        preset='medium',
-                        crf=28,  # Adjust compression quality (23-28 is good range)
-                        movflags='+faststart'
-                    )
-                    ffmpeg.run(stream, overwrite_output=True)
-                    
-                    # Read compressed file
-                    with open(temp_out.name, 'rb') as f:
-                        compressed_content = f.read()
-                    
-                    compressed_size_mb = len(compressed_content) / (1024 * 1024)
-                    print(f"Compressed video size: {compressed_size_mb:.2f}MB")
-                    
-                    # If compression was successful and size is now acceptable
-                    if compressed_size_mb <= 15:
-                        content = compressed_content
-                        size_mb = compressed_size_mb
-                        print("Using compressed video")
-                    else:
-                        print("Compressed video still too large, will send as link")
-                        media_type = 'video_link'
-                
-                # Cleanup temp files
-                os.unlink(temp_in.name)
-                os.unlink(temp_out.name)
-                
-            except Exception as e:
-                print(f"Compression failed: {str(e)}, will send as link")
-                media_type = 'video_link'
-        
+        if media_type == 'video' and size_mb > 15:
+            print(f"Large video detected ({size_mb:.2f}MB). Will be sent as link.")
+            media_type = 'video_link'
+
         # Find recipient
         recipient = None
         if recipient_name:
