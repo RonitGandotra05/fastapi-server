@@ -25,6 +25,16 @@ async def send_media_with_caption(
     token = os.getenv('ULTRAMSG_API_TOKEN')
     logger.info(f"Token retrieved: {token[:4]}..." if token else "No token found!")
 
+    # For video_link type, always send as text message with link
+    if media_type == 'video_link':
+        logger.info("Video link type detected, sending as text message with link")
+        message = (
+            f"{caption}\n\n"
+            f"*Video Link:*\n{media_url or media_link}"
+            + (f"\n\n*Tab URL:*\n{tab_url}" if tab_url else "")
+        )
+        return await send_text_message(phone_number, message)
+
     # Check file size if it's a video
     file_size_mb = 0
     if media_type == 'video':

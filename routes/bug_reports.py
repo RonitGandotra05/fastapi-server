@@ -16,6 +16,8 @@ import io
 from pydantic import BaseModel
 import logging
 from events import notify_bug_report_update, notify_comment_update
+import ffmpeg
+from tempfile import NamedTemporaryFile
 
 router = APIRouter()
 
@@ -136,25 +138,62 @@ async def upload_screenshot(
                 detail=f"Unsupported file type. Allowed types: PNG, JPEG, JPG, GIF, MP4, MOV, 3GP"
             )
 
-        # Get file extension
-        file_extension = os.path.splitext(file.filename)[1].lower()
-        if not file_extension:
-            # Set default extension based on content type
-            if content_type in allowed_video_types:
-                file_extension = '.mp4' if 'mp4' in content_type else '.mov' if 'quicktime' in content_type else '.3gp'
-            else:
-                file_extension = '.png'
-
-        # Check file size for videos (16MB limit)
-        file_content = await file.read()
-        file_size = len(file_content)
+        # Read file content
+        content = await file.read()
+        size_mb = len(content) / (1024 * 1024)  # Convert to MB
         
-        if content_type in allowed_video_types and file_size > 16 * 1024 * 1024:  # 16MB
-            raise HTTPException(
-                status_code=400,
-                detail="Video file size must be less than 16MB"
-            )
-
+        print(f"Video size: {size_mb:.2f}MB")
+        
+        # Initialize media_type based on content type
+        media_type = 'video' if file.content_type.startswith('video/') else 'image'
+        
+        if size_mb > 15 and file.content_type.startswith('video/'):
+            print(f"Large video detected ({size_mb:.2f}MB). Attempting compression...")
+            
+            try:
+                # Create temporary files for input and output
+                with NamedTemporaryFile(suffix=os.path.splitext(file.filename)[1], delete=False) as temp_in, \
+                     NamedTemporaryFile(suffix='.mp4', delete=False) as temp_out:
+                    
+                    # Write original video to temp file
+                    temp_in.write(content)
+                    temp_in.flush()
+                    
+                    # Compress video using ffmpeg
+                    stream = ffmpeg.input(temp_in.name)
+                    stream = ffmpeg.output(stream, temp_out.name, 
+                        vcodec='libx264',
+                        acodec='aac',
+                        preset='medium',
+                        crf=28,  # Adjust compression quality (23-28 is good range)
+                        movflags='+faststart'
+                    )
+                    ffmpeg.run(stream, overwrite_output=True)
+                    
+                    # Read compressed file
+                    with open(temp_out.name, 'rb') as f:
+                        compressed_content = f.read()
+                    
+                    compressed_size_mb = len(compressed_content) / (1024 * 1024)
+                    print(f"Compressed video size: {compressed_size_mb:.2f}MB")
+                    
+                    # If compression was successful and size is now acceptable
+                    if compressed_size_mb <= 15:
+                        content = compressed_content
+                        size_mb = compressed_size_mb
+                        print("Using compressed video")
+                    else:
+                        print("Compressed video still too large, will send as link")
+                        media_type = 'video_link'
+                
+                # Cleanup temp files
+                os.unlink(temp_in.name)
+                os.unlink(temp_out.name)
+                
+            except Exception as e:
+                print(f"Compression failed: {str(e)}, will send as link")
+                media_type = 'video_link'
+        
         # Find recipient
         recipient = None
         if recipient_name:
@@ -173,14 +212,14 @@ async def upload_screenshot(
         # File upload to S3
         try:
             # Generate unique filename with correct extension
-            file_name = f"screenshot-{uuid.uuid4()}{file_extension}"
+            file_name = f"screenshot-{uuid.uuid4()}{os.path.splitext(file.filename)[1]}"
             
-            print(f"Uploading file: {file_name} (size: {file_size} bytes, type: {content_type})")
+            print(f"Uploading file: {file_name} (size: {size_mb:.2f}MB, type: {content_type})")
             
             s3_client.put_object(
                 Bucket=AWS_BUCKET_NAME,
                 Key=file_name,
-                Body=file_content,
+                Body=content,
                 ContentType=content_type
             )
 
@@ -190,13 +229,6 @@ async def upload_screenshot(
         except Exception as e:
             print(f"S3 upload error: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to upload file to S3")
-
-        # Determine media type
-        media_type = 'video' if content_type in allowed_video_types else 'image'
-        if media_type == 'video' and file_size > 15 * 1024 * 1024:  # Videos > 15MB will be sent as links
-            media_type = 'video_link'
-
-        print(f"Media type determined: {media_type}")
 
         # Create bug report
         bug_report = BugReport(
@@ -424,13 +456,8 @@ async def list_bug_reports(
             joinedload(BugReport.cc_recipients).joinedload(BugReportCC.cc_recipient)
         ).all()
         
-        for bug in bug_reports:
-            logging.info(f"Processing bug report {bug.id}: recipient={bug.recipient_id}, "
-                        f"has_recipient={bug.recipient is not None}")
-
         return [BugReportResponse.from_bug_report(bug) for bug in bug_reports]
     except Exception as e:
-        logging.error(f"Error in list_bug_reports: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error while fetching bug reports: {str(e)}"
