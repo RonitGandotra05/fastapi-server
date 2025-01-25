@@ -113,3 +113,63 @@ media/
 
 # System Files
 Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.env/
+.venv/
+virtualenv/
+.virtualenv/
+.python-version
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local development
+.env
+.env.local
+.env.*.local
+
+# Firebase Credentials
+bugzapp-950df-firebase-adminsdk-fbsvc-935ae16d72.json
+*firebase-adminsdk*.json
+google-services.json
+
+# Media files
+uploads/
+media/
+
+# Database
+*.sqlite3
+*.db
+
+# System Files
+.DS_Store
+Thumbs.db
