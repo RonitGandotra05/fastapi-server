@@ -1,5 +1,6 @@
 # Virtual Environment
 venv/
+ENV/
 
 # Python Cache
 __pycache__/
@@ -13,6 +14,8 @@ __pycache__/
 
 # Environment Variables
 .env
+.env.local
+.env.*.local
 
 # Logs
 *.log
@@ -88,3 +91,25 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local development
+.env.local
+.env.*.local
+
+# Firebase Credentials
+bugzapp-950df-firebase-adminsdk-fbsvc-935ae16d72.json
+*firebase-adminsdk*.json
+google-services.json
+
+# Media files
+uploads/
+media/
+
+# System Files
+Thumbs.db
