@@ -1,5 +1,5 @@
-from fastapi import APIRouter, WebSocket, HTTPException
-from auth import verify_token
+from fastapi import APIRouter, WebSocket, HTTPException, Depends
+from auth import verify_token, get_current_user
 from models import User, BugReport, Project
 from websocket_manager import manager
 import json
@@ -14,6 +14,7 @@ from collections import defaultdict
 import time
 from sqlalchemy.orm import joinedload
 from models import BugReportCC
+import re
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -170,98 +171,182 @@ async def handle_message(message: dict, user: User, websocket: WebSocket, db: Se
             }
         })
 
+def validate_fcm_token(token: str) -> bool:
+    """Validate FCM token format."""
+    # Basic FCM token validation
+    if not token or len(token) < 100:
+        return False
+    # Check if token matches FCM format (alphanumeric with colons)
+    if not re.match(r'^[a-zA-Z0-9:_-]{100,}$', token):
+        return False
+    return True
+
+@router.post("/fcm/token")
+async def register_fcm_token(
+    token: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Register FCM token for a user with enhanced validation and logging."""
+    logger.info(f"FCM token registration request for user {current_user.id}")
+    
+    if not validate_fcm_token(token):
+        logger.error(f"Invalid FCM token format for user {current_user.id}")
+        raise HTTPException(status_code=400, detail="Invalid FCM token format")
+    
+    try:
+        # Check if token is already registered
+        if (current_user.id in manager.user_fcm_tokens and 
+            token in manager.user_fcm_tokens[current_user.id]):
+            logger.info(f"FCM token already registered for user {current_user.id}")
+            return {"message": "Token already registered"}
+            
+        await manager.store_fcm_token(current_user.id, token)
+        logger.info(f"FCM token registered for user {current_user.id}")
+        return {"message": "Token registered successfully"}
+    except ValueError as e:
+        logger.error(f"Validation error for FCM token: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error registering FCM token for user {current_user.id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/fcm/token")
+async def remove_fcm_token(
+    token: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Remove FCM token for a user."""
+    if not validate_fcm_token(token):
+        logger.error(f"Invalid FCM token format for user {current_user.id}")
+        raise HTTPException(status_code=400, detail="Invalid FCM token format")
+    
+    try:
+        await manager.remove_fcm_token(current_user.id, token)
+        logger.info(f"FCM token removed for user {current_user.id}")
+        return {"message": "Token removed successfully"}
+    except Exception as e:
+        logger.error(f"Error removing FCM token for user {current_user.id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    db = None
     ping_task = None
-    last_ping = datetime.utcnow()
+    db = None
+    user = None
+    fcm_token = None
+    connection_successful = False
     
     try:
         # Get token from query parameters
         token = websocket.query_params.get("token")
-        logger.info(f"WebSocket connection attempt with token: {token[:10]}..." if token else "No token")
-        
         if not token:
-            logger.error("No token provided")
-            await websocket.close(code=4001, reason="Authentication required")
+            logger.error("WebSocket connection attempt without token")
+            await websocket.close(code=4001, reason="Token not provided")
             return
 
-        # Create DB session
-        db = SessionLocal()
-        
-        # Validate token and get user
-        user = await get_current_user_from_token(token, db)
+        # Verify token and get user
+        user = await verify_token(token)
         if not user:
-            logger.error("Invalid token or user not found")
-            await websocket.close(code=4001, reason="Invalid token or user not found")
+            logger.error("WebSocket connection attempt with invalid token")
+            await websocket.close(code=4002, reason="Invalid token")
             return
 
-        # Check connection limit
-        if connection_counts[user.id] >= RATE_LIMITS["max_connections_per_user"]:
-            logger.error(f"Too many connections for user {user.id}")
-            await websocket.close(code=4009, reason="Too many connections")
+        # Get and validate FCM token with enhanced logging
+        fcm_token = websocket.query_params.get("fcm_token")
+        if fcm_token:
+            logger.info(f"FCM token received for user {user.id}: {fcm_token[:10]}...")
+            
+            if not validate_fcm_token(fcm_token):
+                logger.error(f"Invalid FCM token format in WebSocket connection for user {user.id}")
+                await websocket.close(code=4003, reason="Invalid FCM token format")
+                return
+                
+            try:
+                await manager.store_fcm_token(user.id, fcm_token)
+                logger.info(f"FCM token registered via WebSocket for user {user.id}")
+            except Exception as e:
+                logger.error(f"Failed to store FCM token for user {user.id}: {str(e)}")
+                # Continue with connection even if token storage fails
+        else:
+            logger.warning(f"No FCM token provided in WebSocket connection for user {user.id}")
+
+        # Accept connection with rate limiting
+        if not check_rate_limit(user.id):
+            logger.warning(f"Rate limit exceeded for user {user.id}")
+            await websocket.close(code=4004, reason="Rate limit exceeded")
             return
 
-        logger.info(f"User authenticated: {user.email}")
-        
-        # Update connection count
-        connection_counts[user.id] += 1
-        
-        # Accept the connection through the manager
         await manager.connect(websocket, user.id)
-        logger.info(f"WebSocket connected for user {user.id}")
+        connection_successful = True
+        logger.info(f"WebSocket connection established for user {user.id}")
         
-        # Send welcome message
-        await websocket.send_json({
-            "type": "system",
-            "payload": {
-                "message": f"Welcome {user.name}! You are now connected.",
-                "timestamp": datetime.utcnow().isoformat()
-            }
-        })
-        
-        # Start ping timeout checker
-        async def check_ping_timeout():
-            while True:
-                await asyncio.sleep(30)  # Check every 30 seconds
-                if (datetime.utcnow() - last_ping) > timedelta(minutes=2):
-                    logger.warning(f"Ping timeout for user {user.id}")
-                    await websocket.close(code=4008, reason="Ping timeout")
-                    break
-
-        ping_task = asyncio.create_task(check_ping_timeout())
+        # Initialize connection count
+        connection_counts[user.id] = connection_counts.get(user.id, 0) + 1
         
         try:
             while True:
                 data = await websocket.receive_text()
-                message = json.loads(data)
-                logger.info(f"Received message from user {user.id}: {message}")
-                
-                if message.get("type") == "ping":
-                    last_ping = datetime.utcnow()
-                
-                await handle_message(message, user, websocket, db)
+                try:
+                    message = json.loads(data)
+                    # Update message count for rate limiting
+                    current_time = time.time()
+                    message_counts[user.id].append(current_time)
+                    
+                    # Process message with rate limiting
+                    if not check_rate_limit(user.id):
+                        logger.warning(f"Message rate limit exceeded for user {user.id}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "payload": {
+                                "code": "rate_limit_exceeded",
+                                "message": "Too many messages. Please wait."
+                            }
+                        })
+                        continue
+                        
+                    await handle_message(message, user, websocket, db)
+                    
+                except json.JSONDecodeError:
+                    logger.error(f"Invalid JSON received from user {user.id}: {data}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "payload": {
+                            "code": "invalid_json",
+                            "message": "Invalid JSON format"
+                        }
+                    })
+                    continue
                 
         except Exception as e:
-            logger.error(f"WebSocket error for user {user.id}: {str(e)}")
-        finally:
-            if ping_task:
-                ping_task.cancel()
-            connection_counts[user.id] -= 1
-            await manager.disconnect(websocket, user.id)
-            logger.info(f"WebSocket disconnected for user {user.id}")
-    
+            logger.error(f"Error processing WebSocket message for user {user.id}: {str(e)}")
+            
     except Exception as e:
         logger.error(f"WebSocket connection error: {str(e)}")
-        try:
-            await websocket.close(code=4000, reason="Connection error")
-        except:
-            pass
     finally:
         if ping_task:
             ping_task.cancel()
         if db:
             db.close()
+        
+        # Update connection count
+        if user and hasattr(user, 'id'):
+            connection_counts[user.id] = max(0, connection_counts.get(user.id, 1) - 1)
+            
+        # Only remove FCM token if we had a successful connection and it's the last connection
+        if (connection_successful and fcm_token and user and hasattr(user, 'id') and 
+            connection_counts.get(user.id, 0) == 0):
+            try:
+                await manager.remove_fcm_token(user.id, fcm_token)
+                logger.info(f"FCM token removed on disconnect for user {user.id}")
+            except Exception as e:
+                logger.error(f"Error removing FCM token for user {user.id}: {str(e)}")
+        
+        if user and hasattr(user, 'id'):
+            try:
+                await manager.disconnect(websocket, user.id)
+                logger.info(f"WebSocket connection closed for user {user.id}")
+            except Exception as e:
+                logger.error(f"Error disconnecting WebSocket for user {user.id}: {str(e)}")
 
 # Set up database event listeners
 @event.listens_for(BugReport, 'after_insert')
