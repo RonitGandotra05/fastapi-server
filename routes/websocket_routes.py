@@ -244,82 +244,66 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close(code=4001, reason="Token not provided")
             return
 
-        # Verify token and get user
-        user = await verify_token(token)
-        if not user:
-            logger.error("WebSocket connection attempt with invalid token")
+        # Get FCM token from query parameters
+        fcm_token = websocket.query_params.get("fcm_token")
+        
+        # Create database session
+        db = SessionLocal()
+        
+        try:
+            # Verify token synchronously first
+            payload = verify_token(token)
+            user_email = payload.get("sub")
+            if user_email is None:
+                raise ValueError("Invalid token payload")
+                
+            # Get user from database
+            user = db.query(User).filter(User.email == user_email).first()
+            if not user:
+                raise ValueError("User not found")
+                
+        except Exception as e:
+            logger.error(f"Token verification failed: {str(e)}")
             await websocket.close(code=4002, reason="Invalid token")
             return
 
-        # Get and validate FCM token with enhanced logging
-        fcm_token = websocket.query_params.get("fcm_token")
-        if fcm_token:
-            logger.info(f"FCM token received for user {user.id}: {fcm_token[:10]}...")
-            
-            if not validate_fcm_token(fcm_token):
-                logger.error(f"Invalid FCM token format in WebSocket connection for user {user.id}")
-                await websocket.close(code=4003, reason="Invalid FCM token format")
-                return
-                
-            try:
-                await manager.store_fcm_token(user.id, fcm_token)
-                logger.info(f"FCM token registered via WebSocket for user {user.id}")
-            except Exception as e:
-                logger.error(f"Failed to store FCM token for user {user.id}: {str(e)}")
-                # Continue with connection even if token storage fails
-        else:
-            logger.warning(f"No FCM token provided in WebSocket connection for user {user.id}")
-
-        # Accept connection with rate limiting
-        if not check_rate_limit(user.id):
-            logger.warning(f"Rate limit exceeded for user {user.id}")
-            await websocket.close(code=4004, reason="Rate limit exceeded")
-            return
-
-        await manager.connect(websocket, user.id)
+        # Accept the connection
+        await websocket.accept()
         connection_successful = True
-        logger.info(f"WebSocket connection established for user {user.id}")
         
-        # Initialize connection count
-        connection_counts[user.id] = connection_counts.get(user.id, 0) + 1
+        # Update connection count
+        connection_counts[user.id] += 1
         
-        try:
+        # Store FCM token if provided
+        if fcm_token:
+            if validate_fcm_token(fcm_token):
+                await manager.store_fcm_token(user.id, fcm_token)
+            else:
+                logger.warning(f"Invalid FCM token format received for user {user.id}")
+        
+        # Add connection to manager
+        await manager.connect(websocket, user)
+        
+        # Start ping task
+        async def send_ping():
             while True:
-                data = await websocket.receive_text()
                 try:
-                    message = json.loads(data)
-                    # Update message count for rate limiting
-                    current_time = time.time()
-                    message_counts[user.id].append(current_time)
+                    await asyncio.sleep(30)
+                    await websocket.send_json({"type": "ping"})
+                except:
+                    break
                     
-                    # Process message with rate limiting
-                    if not check_rate_limit(user.id):
-                        logger.warning(f"Message rate limit exceeded for user {user.id}")
-                        await websocket.send_json({
-                            "type": "error",
-                            "payload": {
-                                "code": "rate_limit_exceeded",
-                                "message": "Too many messages. Please wait."
-                            }
-                        })
-                        continue
-                        
-                    await handle_message(message, user, websocket, db)
-                    
-                except json.JSONDecodeError:
-                    logger.error(f"Invalid JSON received from user {user.id}: {data}")
-                    await websocket.send_json({
-                        "type": "error",
-                        "payload": {
-                            "code": "invalid_json",
-                            "message": "Invalid JSON format"
-                        }
-                    })
-                    continue
-                
-        except Exception as e:
-            logger.error(f"Error processing WebSocket message for user {user.id}: {str(e)}")
-            
+        ping_task = asyncio.create_task(send_ping())
+        
+        # Handle incoming messages
+        while True:
+            try:
+                message = await websocket.receive_json()
+                await handle_message(message, user, websocket, db)
+            except Exception as e:
+                logger.error(f"Error handling message: {str(e)}")
+                break
+
     except Exception as e:
         logger.error(f"WebSocket connection error: {str(e)}")
     finally:
