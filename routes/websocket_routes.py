@@ -271,19 +271,13 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.accept()
         connection_successful = True
         
-        # Update connection count
-        connection_counts[user.id] += 1
+        # Add connection to manager
+        await manager.connect(websocket, user.id)
         
         # Store FCM token if provided
-        if fcm_token:
-            if validate_fcm_token(fcm_token):
-                await manager.store_fcm_token(user.id, fcm_token)
-            else:
-                logger.warning(f"Invalid FCM token format received for user {user.id}")
-        
-        # Add connection to manager
-        await manager.connect(websocket, user)
-        
+        if fcm_token and validate_fcm_token(fcm_token):
+            await manager.store_fcm_token(user.id, fcm_token)
+            
         # Start ping task
         async def send_ping():
             while True:

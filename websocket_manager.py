@@ -19,7 +19,6 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket, user_id: int):
         """Connect a WebSocket client."""
         try:
-            await websocket.accept()
             if user_id not in self.active_connections:
                 self.active_connections[user_id] = set()
             self.active_connections[user_id].add(websocket)
