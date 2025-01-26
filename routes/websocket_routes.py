@@ -292,10 +292,37 @@ async def websocket_endpoint(websocket: WebSocket):
         # Handle incoming messages
         while True:
             try:
-                message = await websocket.receive_json()
-                await handle_message(message, user, websocket, db)
+                data = await websocket.receive_text()
+                if not data:
+                    continue
+                    
+                try:
+                    message = json.loads(data)
+                    if not isinstance(message, dict):
+                        logger.warning(f"Received non-dict message: {message}")
+                        continue
+                        
+                    message_type = message.get('type')
+                    if message_type == 'ping':
+                        await websocket.send_json({
+                            'type': 'pong',
+                            'timestamp': datetime.utcnow().isoformat()
+                        })
+                    else:
+                        await handle_message(message, user, websocket, db)
+                except json.JSONDecodeError as e:
+                    if data != 'ping':  # Ignore JSON decode errors for ping messages
+                        logger.warning(f"Invalid JSON received: {data[:100]}")
+                    else:
+                        await websocket.send_json({
+                            'type': 'pong',
+                            'timestamp': datetime.utcnow().isoformat()
+                        })
             except Exception as e:
-                logger.error(f"Error handling message: {str(e)}")
+                if "websocket.receive" in str(e):
+                    logger.info("Client disconnected")
+                else:
+                    logger.error(f"Error handling message: {str(e)}")
                 break
 
     except Exception as e:
