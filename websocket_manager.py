@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from firebase_manager import FirebaseManager
 import asyncio
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +75,17 @@ class ConnectionManager:
         """Validate FCM token without sending a test notification."""
         try:
             # Use a silent notification for validation
+            validation_data = {
+                "type": "validation",
+                "silent": "true",
+                "timestamp": str(int(time.time()))
+            }
+            
             response = await self.firebase.send_notification(
                 tokens=[token],
                 title="",
                 body="",
-                data={"type": "validation", "silent": True},
+                data=validation_data,
                 is_silent=True
             )
             
@@ -96,6 +103,11 @@ class ConnectionManager:
                     logger.warning(f"FCM service temporarily unavailable: {error}")
                     return True
             return True
+        except ValueError as e:
+            if 'non-string values' in str(e):
+                logger.error(f"Data validation error for FCM token: {e}")
+                return True  # Don't invalidate token for data format issues
+            raise
         except Exception as e:
             if '404' in str(e):
                 # FCM service issue, don't fail validation
@@ -218,65 +230,77 @@ class ConnectionManager:
         max_retries: int = 3,
         is_silent: bool = False
     ):
-        """Send FCM notification with enhanced error handling and silent notification support."""
+        """Send FCM notification with enhanced error handling and data validation."""
         if not tokens:
             logger.warning("No FCM tokens provided for notification")
             return
 
+        # Ensure all data values are strings
+        sanitized_data = {}
+        if data:
+            try:
+                for key, value in data.items():
+                    sanitized_data[str(key)] = str(value)
+            except Exception as e:
+                logger.error(f"Error sanitizing FCM data: {e}")
+                return
+
         for attempt in range(max_retries):
             try:
-                # Add notification priority and channel settings
-                notification_config = {
-                    "tokens": tokens,
-                    "title": title,
-                    "body": body,
-                    "data": {
-                        **(data or {}),
-                        "click_action": "FLUTTER_NOTIFICATION_CLICK",
-                        "priority": "high"
-                    },
-                    "is_silent": is_silent
-                }
-
-                response = await self.firebase.send_notification(**notification_config)
-                
-                # Handle failed tokens
-                if response and response.failure_count > 0:
-                    for idx, result in enumerate(response.responses):
-                        if not result.success:
-                            token = tokens[idx]
-                            error = str(result.exception)
-                            
-                            # Log specific error types
-                            if 'InvalidRegistration' in error:
-                                logger.error(f"Invalid FCM token format: {token[:10]}...")
-                            elif 'NotRegistered' in error:
-                                logger.error(f"FCM token not registered: {token[:10]}...")
-                            elif 'MessageTooBig' in error:
-                                logger.error("FCM message payload too large")
-                            else:
-                                logger.error(f"FCM error: {error}")
-                            
-                            # Remove invalid tokens
-                            for user_id, user_tokens in self.user_fcm_tokens.items():
-                                if token in user_tokens:
-                                    if 'InvalidRegistration' in error or 'NotRegistered' in error:
-                                        await self.remove_fcm_token(user_id, token)
-                                        logger.info(f"Removed invalid FCM token for user {user_id}")
-                                    break
+                response = await self.firebase.send_notification(
+                    tokens=tokens,
+                    title=title,
+                    body=body,
+                    data=sanitized_data,
+                    is_silent=is_silent
+                )
                 
                 if response and response.success_count > 0:
                     logger.info(f"Successfully sent FCM notification to {response.success_count} devices")
                 
+                # Handle failed tokens
+                if response and response.failure_count > 0:
+                    await self._handle_fcm_failures(response, tokens)
+                
                 return response
                 
+            except ValueError as e:
+                if 'non-string values' in str(e):
+                    logger.error(f"Data validation error: {e}")
+                    return None
+                raise
             except Exception as e:
                 if attempt == max_retries - 1:
                     logger.error(f"Failed to send FCM notification after {max_retries} attempts: {str(e)}")
                     raise
                 else:
                     logger.warning(f"FCM notification attempt {attempt + 1} failed, retrying...")
-                    await asyncio.sleep(1)  # Wait before retry
+                    await asyncio.sleep(1)
+
+    async def _handle_fcm_failures(self, response, tokens):
+        """Handle FCM notification failures."""
+        for idx, result in enumerate(response.responses):
+            if not result.success:
+                token = tokens[idx]
+                error = str(result.exception)
+                
+                # Log specific error types
+                if 'InvalidRegistration' in error:
+                    logger.error(f"Invalid FCM token format: {token[:10]}...")
+                elif 'NotRegistered' in error:
+                    logger.error(f"FCM token not registered: {token[:10]}...")
+                elif 'MessageTooBig' in error:
+                    logger.error("FCM message payload too large")
+                else:
+                    logger.error(f"FCM error: {error}")
+                
+                # Remove invalid tokens
+                for user_id, user_tokens in self.user_fcm_tokens.items():
+                    if token in user_tokens:
+                        if 'InvalidRegistration' in error or 'NotRegistered' in error:
+                            await self.remove_fcm_token(user_id, token)
+                            logger.info(f"Removed invalid FCM token for user {user_id}")
+                        break
 
     async def broadcast_to_users(self, user_ids: Set[int], message: dict):
         """Broadcast message to specific users."""

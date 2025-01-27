@@ -86,6 +86,12 @@ class FirebaseManager:
             return None
             
         try:
+            # Ensure all data values are strings
+            sanitized_data = {}
+            if data:
+                for key, value in data.items():
+                    sanitized_data[str(key)] = str(value)
+            
             # Split tokens into batches to avoid FCM limits
             batch_size = self.MAX_TOKENS_PER_REQUEST
             batches = [tokens[i:i + batch_size] for i in range(0, len(tokens), batch_size)]
@@ -98,7 +104,7 @@ class FirebaseManager:
                         title=title,
                         body=body,
                     ),
-                    data=data or {},
+                    data=sanitized_data,
                     android=messaging.AndroidConfig(
                         priority='high',
                         notification=messaging.AndroidNotification(
@@ -130,8 +136,9 @@ class FirebaseManager:
                             body=body,
                             icon='/favicon.ico',
                             badge='/favicon.ico',
-                            tag=data.get('type', 'default') if data else 'default',
-                            require_interaction=True
+                            tag=sanitized_data.get('type', 'default'),
+                            require_interaction=True,
+                            data=sanitized_data  # Use sanitized data here too
                         )
                     )
                 )
