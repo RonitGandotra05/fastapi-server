@@ -90,12 +90,14 @@ async def handle_message(message: dict, user: User, websocket: WebSocket, db: Se
         message_type = message.get("type", "")
         
         if message_type == "ping":
+            logger.info(f"← Received ping from client (user: {user.id})")
             await websocket.send_json({
                 "type": "pong",
                 "payload": {
                     "timestamp": datetime.utcnow().isoformat()
                 }
             })
+            logger.info(f"→ Sent pong to client (user: {user.id})")
             return
 
         if message_type == "bug_report":

@@ -104,9 +104,14 @@ class ConnectionManager:
     async def send_personal_message(self, message: dict, user_id: int):
         """Send message to a specific user."""
         if user_id in self.active_connections:
+            message_type = message.get('type', '')
             for connection in self.active_connections[user_id]:
                 try:
                     await connection.send_json(message)
+                    if message_type in ['ping', 'pong']:
+                        logger.info(f"→ Sent {message_type} to user {user_id}")
+                    else:
+                        logger.debug(f"Sent message type '{message_type}' to user {user_id}")
                 except Exception as e:
                     logger.error(f"Error sending message to user {user_id}: {str(e)}")
 
