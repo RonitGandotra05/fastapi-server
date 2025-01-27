@@ -35,6 +35,7 @@ class FirebaseManager:
     MAX_RETRIES = 3
     RETRY_DELAY = 1  # seconds
     PROJECT_ID = "bugzapp-950df"
+    CREDENTIALS_FILE = 'bugzapp-950df-firebase-adminsdk-fbsvc-935ae16d72.json'
 
     @classmethod
     def get_instance(cls):
@@ -46,10 +47,10 @@ class FirebaseManager:
         try:
             # Initialize Firebase Admin SDK
             if not firebase_admin._apps:
-                cred = credentials.Certificate('config/credentials/firebase-service-key.json')
+                cred = credentials.Certificate(self.CREDENTIALS_FILE)
                 firebase_admin.initialize_app(cred, {
                     'projectId': self.PROJECT_ID,
-                    'storageBucket': f"{self.PROJECT_ID}.firebasestorage.app"
+                    'storageBucket': f"{self.PROJECT_ID}.appspot.com"
                 })
                 logger.info(f"Firebase Admin SDK initialized successfully with project ID: {self.PROJECT_ID}")
         except Exception as e:
