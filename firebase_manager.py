@@ -34,6 +34,7 @@ class FirebaseManager:
     MAX_TOKENS_PER_REQUEST = 500
     MAX_RETRIES = 3
     RETRY_DELAY = 1  # seconds
+    FCM_V1_ENDPOINT = "https://fcm.googleapis.com/v1/projects/bugzapp-950df/messages:send"
 
     @classmethod
     def get_instance(cls):
@@ -60,7 +61,9 @@ class FirebaseManager:
                     raise ValueError(f"Firebase credentials file not found at {cred_path}")
                 
                 cred = credentials.Certificate(cred_path)
-                firebase_admin.initialize_app(cred)
+                firebase_admin.initialize_app(cred, {
+                    'projectId': 'bugzapp-950df',
+                })
                 logger.info(f"Firebase Admin SDK initialized successfully with credentials from: {cred_path}")
             
         except Exception as e:
@@ -83,43 +86,79 @@ class FirebaseManager:
             return None
             
         try:
-            message = messaging.MulticastMessage(
-                tokens=tokens,
-                notification=None if is_silent else messaging.Notification(
-                    title=title,
-                    body=body,
-                ),
-                data=data or {},
-                android=messaging.AndroidConfig(
-                    priority='high',
-                    notification=messaging.AndroidNotification(
+            # Split tokens into batches to avoid FCM limits
+            batch_size = self.MAX_TOKENS_PER_REQUEST
+            batches = [tokens[i:i + batch_size] for i in range(0, len(tokens), batch_size)]
+            
+            responses = []
+            for batch in batches:
+                message = messaging.MulticastMessage(
+                    tokens=batch,
+                    notification=None if is_silent else messaging.Notification(
+                        title=title,
+                        body=body,
+                    ),
+                    data=data or {},
+                    android=messaging.AndroidConfig(
                         priority='high',
-                        default_sound=True
-                    )
-                ),
-                apns=messaging.APNSConfig(
-                    payload=messaging.APNSPayload(
-                        aps=messaging.Aps(
-                            sound='default',
-                            badge=1
+                        notification=messaging.AndroidNotification(
+                            priority='high',
+                            default_sound=True,
+                            channel_id='bug_notifications'
+                        )
+                    ),
+                    apns=messaging.APNSConfig(
+                        headers={'apns-priority': '10'},
+                        payload=messaging.APNSPayload(
+                            aps=messaging.Aps(
+                                alert=messaging.ApsAlert(
+                                    title=title,
+                                    body=body
+                                ),
+                                sound='default',
+                                badge=1,
+                                content_available=True
+                            )
+                        )
+                    ),
+                    webpush=messaging.WebpushConfig(
+                        headers={
+                            'Urgency': 'high'
+                        },
+                        notification=messaging.WebpushNotification(
+                            title=title,
+                            body=body,
+                            icon='/favicon.ico',
+                            badge='/favicon.ico',
+                            tag=data.get('type', 'default') if data else 'default',
+                            require_interaction=True
                         )
                     )
                 )
-            )
-            
-            response = messaging.send_multicast(message)
-            
-            if response.failure_count > 0:
-                failures = []
-                for idx, resp in enumerate(response.responses):
-                    if not resp.success:
-                        failures.append({
-                            'token': tokens[idx],
-                            'error': str(resp.exception)
-                        })
-                logger.error(f"FCM send failures: {json.dumps(failures, indent=2)}")
                 
-            return response
+                for attempt in range(self.MAX_RETRIES):
+                    try:
+                        response = messaging.send_multicast(message)
+                        responses.append(response)
+                        break
+                    except Exception as e:
+                        if attempt == self.MAX_RETRIES - 1:
+                            raise
+                        await asyncio.sleep(self.RETRY_DELAY * (attempt + 1))
+            
+            # Log failures if any
+            for response in responses:
+                if response.failure_count > 0:
+                    failures = []
+                    for idx, resp in enumerate(response.responses):
+                        if not resp.success:
+                            failures.append({
+                                'token': tokens[idx],
+                                'error': str(resp.exception)
+                            })
+                    logger.error(f"FCM send failures: {json.dumps(failures, indent=2)}")
+                
+            return responses[0] if responses else None
             
         except Exception as e:
             logger.error(f"Error sending FCM notification: {str(e)}", exc_info=True)

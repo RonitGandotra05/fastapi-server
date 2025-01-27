@@ -41,16 +41,30 @@ class ConnectionManager:
     async def store_fcm_token(self, user_id: int, token: str):
         """Store FCM token for a user with validation."""
         try:
+            if not token or len(token) < 100:
+                logger.warning(f"Invalid FCM token format for user {user_id}")
+                return
+
             if user_id not in self.user_fcm_tokens:
                 self.user_fcm_tokens[user_id] = set()
+            
+            # Check if token already exists
+            if token in self.user_fcm_tokens[user_id]:
+                logger.info(f"FCM token already exists for user {user_id}")
+                return
+                
             self.user_fcm_tokens[user_id].add(token)
             logger.info(f"FCM token stored for user {user_id}")
             
             # Try validating token but don't fail if Firebase is not configured
             try:
-                await self.validate_token(user_id, token)
+                is_valid = await self.validate_token(user_id, token)
+                if not is_valid:
+                    logger.warning(f"FCM token validation failed for user {user_id}")
+                    self.user_fcm_tokens[user_id].discard(token)
             except Exception as e:
-                logger.warning(f"FCM token validation failed but continuing: {str(e)}")
+                if '404' not in str(e):  # Ignore temporary FCM service issues
+                    logger.warning(f"FCM token validation failed but continuing: {str(e)}")
             
         except Exception as e:
             logger.error(f"Error storing FCM token for user {user_id}: {str(e)}")
@@ -64,23 +78,32 @@ class ConnectionManager:
                 tokens=[token],
                 title="",
                 body="",
-                data={"type": "validation"},
-                is_silent=True  # This will be a silent notification
+                data={"type": "validation", "silent": True},
+                is_silent=True
             )
             
             if response and response.failure_count > 0:
-                error = response.responses[0].exception
-                if 'InvalidRegistration' in str(error) or 'NotRegistered' in str(error):
+                error = str(response.responses[0].exception)
+                if any(err in error for err in ['InvalidRegistration', 'NotRegistered', 'InvalidApnsCredential']):
                     await self.remove_fcm_token(user_id, token)
-                    logger.warning(f"Removed invalid FCM token for user {user_id}")
-                    raise ValueError("Invalid FCM token")
-                elif 'MessageTooBig' in str(error):
+                    logger.warning(f"Removed invalid FCM token for user {user_id}: {error}")
+                    return False
+                elif 'MessageTooBig' in error:
                     # Token is valid but message was too big
+                    return True
+                elif '404' in error:
+                    # Temporary FCM service issue, don't invalidate token
+                    logger.warning(f"FCM service temporarily unavailable: {error}")
                     return True
             return True
         except Exception as e:
-            logger.error(f"Error validating FCM token for user {user_id}: {str(e)}")
-            raise
+            if '404' in str(e):
+                # FCM service issue, don't fail validation
+                logger.warning(f"FCM service temporarily unavailable: {e}")
+                return True
+            logger.error(f"Error validating FCM token for user {user_id}: {e}")
+            # Don't raise exception to prevent WebSocket disconnection
+            return False
 
     async def remove_fcm_token(self, user_id: int, token: str):
         """Remove FCM token for a user."""
