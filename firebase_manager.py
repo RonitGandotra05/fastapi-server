@@ -5,6 +5,7 @@ import os
 import asyncio
 from datetime import datetime, timedelta
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -34,35 +35,40 @@ class FirebaseManager:
     MAX_RETRIES = 3
     RETRY_DELAY = 1  # seconds
 
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
     def __init__(self):
-        # Get the absolute path to the root directory
-        root_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        # Default credentials file in root directory
-        default_cred_path = os.path.join(root_dir, 'bugzapp-950df-firebase-adminsdk-fbsvc-935ae16d72.json')
-        
-        # Use environment variable if set, otherwise use default path
-        cred_path = os.getenv('FIREBASE_CREDENTIALS_PATH', default_cred_path)
-        
         try:
-            cred = credentials.Certificate(cred_path)
-            firebase_admin.initialize_app(cred)
-            logger.info(f"Firebase initialized successfully with credentials from: {cred_path}")
-        except ValueError as e:
-            # App already initialized
-            logger.warning(f"Firebase app already initialized: {str(e)}")
+            # Check if Firebase Admin SDK is already initialized
+            try:
+                app = firebase_admin.get_app()
+            except ValueError:
+                # Get the absolute path to the current directory
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                
+                # Default credentials file in the same directory
+                default_cred_path = os.path.join(current_dir, 'bugzapp-950df-firebase-adminsdk-fbsvc-935ae16d72.json')
+                
+                # Use environment variable if set, otherwise use default path
+                cred_path = os.getenv('FIREBASE_CREDENTIALS_PATH', default_cred_path)
+                
+                if not os.path.exists(cred_path):
+                    raise ValueError(f"Firebase credentials file not found at {cred_path}")
+                
+                cred = credentials.Certificate(cred_path)
+                firebase_admin.initialize_app(cred)
+                logger.info(f"Firebase Admin SDK initialized successfully with credentials from: {cred_path}")
+            
         except Exception as e:
-            logger.error(f"Error initializing Firebase: {str(e)}")
+            logger.error(f"Failed to initialize Firebase: {str(e)}")
             raise
 
         # Initialize rate limiter (1000 requests per minute)
         self.rate_limiter = RateLimiter(max_requests=1000, time_window=60)
-
-    @classmethod
-    def get_instance(cls):
-        if cls._instance is None:
-            cls._instance = FirebaseManager()
-        return cls._instance
 
     async def send_notification(
         self,
@@ -72,30 +78,52 @@ class FirebaseManager:
         data: Optional[Dict] = None,
         is_silent: bool = False
     ):
-        """Send FCM notification with batching, rate limiting and silent notification support."""
+        """Send FCM notification with enhanced error handling."""
         if not tokens:
-            logger.warning("No tokens provided for notification")
             return None
-
-        if not await self.rate_limiter.acquire():
-            logger.warning("Rate limit exceeded, delaying notification")
-            await asyncio.sleep(1)
-            return await self.send_notification(tokens, title, body, data, is_silent)
-
-        results = []
-        
-        # Process tokens in batches
-        for i in range(0, len(tokens), self.MAX_TOKENS_PER_REQUEST):
-            batch = tokens[i:i + self.MAX_TOKENS_PER_REQUEST]
-            batch_result = await self._send_batch(batch, title, body, data, is_silent)
-            if batch_result:
-                results.append(batch_result)
             
-            # Small delay between batches to prevent rate limiting
-            if i + self.MAX_TOKENS_PER_REQUEST < len(tokens):
-                await asyncio.sleep(0.1)
-        
-        return self._aggregate_results(results)
+        try:
+            message = messaging.MulticastMessage(
+                tokens=tokens,
+                notification=None if is_silent else messaging.Notification(
+                    title=title,
+                    body=body,
+                ),
+                data=data or {},
+                android=messaging.AndroidConfig(
+                    priority='high',
+                    notification=messaging.AndroidNotification(
+                        priority='high',
+                        default_sound=True
+                    )
+                ),
+                apns=messaging.APNSConfig(
+                    payload=messaging.APNSPayload(
+                        aps=messaging.Aps(
+                            sound='default',
+                            badge=1
+                        )
+                    )
+                )
+            )
+            
+            response = messaging.send_multicast(message)
+            
+            if response.failure_count > 0:
+                failures = []
+                for idx, resp in enumerate(response.responses):
+                    if not resp.success:
+                        failures.append({
+                            'token': tokens[idx],
+                            'error': str(resp.exception)
+                        })
+                logger.error(f"FCM send failures: {json.dumps(failures, indent=2)}")
+                
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error sending FCM notification: {str(e)}", exc_info=True)
+            raise
 
     async def _send_batch(
         self,

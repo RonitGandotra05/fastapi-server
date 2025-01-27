@@ -46,11 +46,15 @@ class ConnectionManager:
             self.user_fcm_tokens[user_id].add(token)
             logger.info(f"FCM token stored for user {user_id}")
             
-            # Validate token by sending a test notification
-            await self.validate_token(user_id, token)
+            # Try validating token but don't fail if Firebase is not configured
+            try:
+                await self.validate_token(user_id, token)
+            except Exception as e:
+                logger.warning(f"FCM token validation failed but continuing: {str(e)}")
+            
         except Exception as e:
             logger.error(f"Error storing FCM token for user {user_id}: {str(e)}")
-            raise
+            # Don't re-raise to prevent WebSocket disconnection
 
     async def validate_token(self, user_id: int, token: str):
         """Validate FCM token without sending a test notification."""
