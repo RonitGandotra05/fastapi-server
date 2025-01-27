@@ -10,12 +10,16 @@ import time
 logger = logging.getLogger(__name__)
 
 class ConnectionManager:
+    PROJECT_ID = "bugzapp-950df"
+    PACKAGE_NAME = "com.example.bugzapp"
+
     def __init__(self):
         # Store active connections by user_id
         self.active_connections: Dict[int, Set[WebSocket]] = {}
         self.user_fcm_tokens: Dict[int, Set[str]] = {}  # Store FCM tokens
         self.firebase = FirebaseManager.get_instance()
         self.token_cleanup_lock = asyncio.Lock()
+        self.fcm_tokens: Dict[int, Set[str]] = {}  # Added for the new store_fcm_token method
 
     async def connect(self, websocket: WebSocket, user_id: int):
         """Connect a WebSocket client."""
@@ -40,81 +44,54 @@ class ConnectionManager:
             logger.error(f"Error during disconnect for user {user_id}: {str(e)}")
 
     async def store_fcm_token(self, user_id: int, token: str):
-        """Store FCM token for a user with validation."""
+        """Store FCM token with validation and duplicate checking."""
         try:
-            if not token or len(token) < 100:
+            # Basic token validation
+            if not token or len(token) < 50:
                 logger.warning(f"Invalid FCM token format for user {user_id}")
-                return
+                return False
 
-            if user_id not in self.user_fcm_tokens:
-                self.user_fcm_tokens[user_id] = set()
-            
             # Check if token already exists
-            if token in self.user_fcm_tokens[user_id]:
+            if user_id in self.fcm_tokens and token in self.fcm_tokens[user_id]:
                 logger.info(f"FCM token already exists for user {user_id}")
-                return
-                
-            self.user_fcm_tokens[user_id].add(token)
+                return True
+
+            # Initialize set if not exists
+            if user_id not in self.fcm_tokens:
+                self.fcm_tokens[user_id] = set()
+
+            # Store token
+            self.fcm_tokens[user_id].add(token)
             logger.info(f"FCM token stored for user {user_id}")
-            
-            # Try validating token but don't fail if Firebase is not configured
-            try:
-                is_valid = await self.validate_token(user_id, token)
-                if not is_valid:
-                    logger.warning(f"FCM token validation failed for user {user_id}")
-                    self.user_fcm_tokens[user_id].discard(token)
-            except Exception as e:
-                if '404' not in str(e):  # Ignore temporary FCM service issues
-                    logger.warning(f"FCM token validation failed but continuing: {str(e)}")
-            
+
+            # Validate token with Firebase
+            await self.validate_token(user_id, token)
+            return True
+
         except Exception as e:
-            logger.error(f"Error storing FCM token for user {user_id}: {str(e)}")
-            # Don't re-raise to prevent WebSocket disconnection
+            logger.error(f"Error storing FCM token: {str(e)}")
+            return False
 
     async def validate_token(self, user_id: int, token: str):
-        """Validate FCM token without sending a test notification."""
+        """Validate FCM token with Firebase."""
         try:
-            # Use a silent notification for validation
-            validation_data = {
-                "type": "validation",
-                "silent": "true",
-                "timestamp": str(int(time.time()))
-            }
-            
-            response = await self.firebase.send_notification(
+            # Send a silent notification to validate token
+            await self.firebase.send_notification(
                 tokens=[token],
-                title="",
-                body="",
-                data=validation_data,
+                title="Token Validation",
+                body="Validating FCM token",
                 is_silent=True
             )
-            
-            if response and response.failure_count > 0:
-                error = str(response.responses[0].exception)
-                if any(err in error for err in ['InvalidRegistration', 'NotRegistered', 'InvalidApnsCredential']):
-                    await self.remove_fcm_token(user_id, token)
-                    logger.warning(f"Removed invalid FCM token for user {user_id}: {error}")
-                    return False
-                elif 'MessageTooBig' in error:
-                    # Token is valid but message was too big
-                    return True
-                elif '404' in error:
-                    # Temporary FCM service issue, don't invalidate token
-                    logger.warning(f"FCM service temporarily unavailable: {error}")
-                    return True
+            logger.info(f"FCM token validated for user {user_id}")
             return True
-        except ValueError as e:
-            if 'non-string values' in str(e):
-                logger.error(f"Data validation error for FCM token: {e}")
-                return True  # Don't invalidate token for data format issues
-            raise
         except Exception as e:
-            if '404' in str(e):
-                # FCM service issue, don't fail validation
-                logger.warning(f"FCM service temporarily unavailable: {e}")
-                return True
-            logger.error(f"Error validating FCM token for user {user_id}: {e}")
-            # Don't raise exception to prevent WebSocket disconnection
+            if "Requested entity was not found" in str(e):
+                logger.warning(f"Invalid FCM token for user {user_id}: {str(e)}")
+                await self.remove_fcm_token(user_id, token)
+            elif "Temporary FCM service error" in str(e):
+                logger.warning(f"Temporary FCM service error for user {user_id}: {str(e)}")
+            else:
+                logger.error(f"Error validating FCM token: {str(e)}")
             return False
 
     async def remove_fcm_token(self, user_id: int, token: str):
