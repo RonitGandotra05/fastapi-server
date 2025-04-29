@@ -16,7 +16,7 @@ async def send_media_with_caption(
     media_type: str = "image",
     tab_url: Optional[str] = None
 ):
-    logger.info(f"Starting send_media_with_caption: phone={phone_number}, media_url={media_url or media_link}, type={media_type}")
+    logger.info(f"Starting send_media_with_caption: phone=91{phone_number}, media_url={media_url or media_link}, type={media_type}")
     
     if not media_url and not media_link:
         logger.info("No media URL, falling back to text message")
@@ -63,7 +63,7 @@ async def send_media_with_caption(
         url = "https://api.ultramsg.com/instance101412/messages/video"
         payload = {
             "token": token,
-            "to": f"{phone_number}@c.us",
+            "to": f"91{phone_number}@c.us",
             "video": media_url or media_link,
             "caption": caption
         }
@@ -71,7 +71,7 @@ async def send_media_with_caption(
         url = "https://api.ultramsg.com/instance101412/messages/image"
         payload = {
             "token": token,
-            "to": f"{phone_number}@c.us",
+            "to": f"91{phone_number}@c.us",
             "image": media_url or media_link,
             "caption": caption
         }
@@ -99,7 +99,7 @@ async def send_media_with_caption(
         raise
 
 async def send_text_message(phone_number: str, message: str):
-    logger.info(f"Starting send_text_message: phone={phone_number}")
+    logger.info(f"Starting send_text_message: phone=91{phone_number}")
     
     token = os.getenv('ULTRAMSG_API_TOKEN')
     if not token:
