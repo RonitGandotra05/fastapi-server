@@ -60,7 +60,7 @@ async def send_media_with_caption(
 
     # Determine the correct endpoint and payload based on media type
     if media_type == 'video':
-        url = "https://api.ultramsg.com/instance29265/messages/video"
+        url = "https://api.ultramsg.com/instance101412/messages/video"
         payload = {
             "token": token,
             "to": f"{phone_number}@c.us",
@@ -68,7 +68,7 @@ async def send_media_with_caption(
             "caption": caption
         }
     else:
-        url = "https://api.ultramsg.com/instance29265/messages/image"
+        url = "https://api.ultramsg.com/instance101412/messages/image"
         payload = {
             "token": token,
             "to": f"{phone_number}@c.us",
@@ -110,7 +110,7 @@ async def send_text_message(phone_number: str, message: str):
 
     # Format phone number correctly
     formatted_phone = phone_number.replace("+", "").replace(" ", "").replace("-", "")
-    url = "https://api.ultramsg.com/instance29265/messages/chat"
+    url = "https://api.ultramsg.com/instance101412/messages/chat"
     
     payload = {
         "token": token,
